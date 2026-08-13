@@ -259,6 +259,31 @@ window._announceLobby = async function (lobby) {
         // The lobby can still run locally if the directory is unavailable.
     }
 };
+window._webLobbyState = null;
+window._webLobbySlot = -1;
+window._pollWebLobby = async function (host) {
+    try {
+        const r = await fetch("/api/lobbies/state/" + encodeURIComponent(host), { cache: "no-store" });
+        if (!r.ok) throw new Error("lobby not found");
+        window._webLobbyState = await r.json();
+        const clients = window._webLobbyState.clients || {};
+        window._webLobbySlot = Number(clients[window._designOwnerId] ?? -1);
+    } catch (e) {
+        window._webLobbyState = null;
+        window._webLobbySlot = -1;
+    }
+};
+window._webLobbyAction = async function (host, action, slot, ready) {
+    try {
+        await fetch("/api/lobbies/action", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ host: host, client: window._designOwnerId,
+                                  action: action, slot: slot, ready: ready }),
+            cache: "no-store"
+        });
+        await window._pollWebLobby(host);
+    } catch (e) {}
+};
 async function pollLobbies() {
     try {
         const t0 = performance.now();
@@ -452,10 +477,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=79")).text();
+            const src = await (await fetch(f + "?v=80")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=79")).text();
+        const shim = await (await fetch("pygame.py?v=80")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

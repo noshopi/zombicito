@@ -504,6 +504,9 @@ gPingT = 0.0
 gAnnounceT = 0.0
 gDirectoryT = 0.0
 gWebHostId = 0
+gWebLobbyId = ""
+gWebSyncT = 0.0
+gWebClients = {}
 gConsoleOpen = False
 gConsoleInput = ""
 gWpnMenuSel = 0
@@ -4301,7 +4304,7 @@ def render_console_overlay():
 
 def lobby_click(mx, my):
     global gLobSel, gLobStage, gLobSelRow, gLobCount, gSt, gLocalSlot, gLobbyGot, gJoinReqT, gJoinStartT
-    global gChatTyping, gChatInput, gLevelSel, gBotEnabled, gLobIpTyping, gLobIp
+    global gChatTyping, gChatInput, gLevelSel, gBotEnabled, gLobIpTyping, gLobIp, gWebLobbyId
     if gLobStage == 3:
         for b, cx in ((0, 42), (1, 142), (2, 282), (3, 430)):
             if abs(mx - cx) <= 42 and 238 <= my <= 256:
@@ -4327,11 +4330,7 @@ def lobby_click(mx, my):
                         lobby_connect_ip()
                         return
                     if IS_WEB:
-                        host_open_local()
-                        gLobStage = 1
-                        gLobSelRow = 0
-                        play_snd(SND_CONFIRM)
-                        msg("MODO LOCAL - SIN RED EN EL NAVEGADOR")
+                        web_join_lobby(e.host)
                     elif gLobCount > 0:
                         order = sorted(range(gLobCount),
                                        key=lambda i: (gLobList[i].started, -gLobList[i].filled))
@@ -4353,15 +4352,11 @@ def lobby_click(mx, my):
             if 20 <= mx <= VIEW_W - 20 and sy - 10 <= my <= sy + 12:
                 gLobSel = pos
                 if gLobCount > 0:
+                    order = sorted(range(gLobCount),
+                                   key=lambda i: (gLobList[i].started, -gLobList[i].filled))
                     if IS_WEB:
-                        host_open_local()
-                        gLobStage = 1
-                        gLobSelRow = 0
-                        play_snd(SND_CONFIRM)
-                        msg("MODO LOCAL - SIN RED EN EL NAVEGADOR")
+                        web_join_lobby(gLobList[order[min(gLobSel, len(order) - 1)]].host)
                     else:
-                        order = sorted(range(gLobCount),
-                                       key=lambda i: (gLobList[i].started, -gLobList[i].filled))
                         e = gLobList[order[min(gLobSel, len(order) - 1)]]
                         if e.started:
                             play_snd(SND_MENU)
@@ -4453,6 +4448,12 @@ def lobby_click(mx, my):
                     if gLobStage == 1:
                         if gLobSelRow == gMySlot and bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28:
                             gLobReady[gMySlot] ^= 1
+                            if gLobStage == 2 and IS_WEB:
+                                try:
+                                    from js import window
+                                    window._webLobbyAction(gWebLobbyId, "ready", gMySlot, gLobReady[gMySlot])
+                                except Exception:
+                                    pass
                             play_snd(SND_MENU)
                             return
                         if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
@@ -4466,7 +4467,14 @@ def lobby_click(mx, my):
                             _lobby_sit_local(gLobSelRow)
                             play_snd(SND_CONFIRM)
                     else:
-                        _lobby_sit_net(gLobSelRow)
+                        if IS_WEB:
+                            try:
+                                from js import window
+                                window._webLobbyAction(gWebLobbyId, "sit", gLobSelRow, 0)
+                            except Exception:
+                                pass
+                        else:
+                            _lobby_sit_net(gLobSelRow)
                         play_snd(SND_CONFIRM)
                     return
 
@@ -4489,6 +4497,22 @@ def lobby_connect_ip():
         gJoinStartT = gNetTime
         play_snd(SND_CONFIRM)
     else:
+        msg("NO SE PUDO CONECTAR")
+
+
+def web_join_lobby(host):
+    global gWebLobbyId, gLobStage, gLobbyGot, gMySlot, gLocalSlot, gHosting
+    gWebLobbyId = host
+    gHosting = 0
+    gLobStage = 2
+    gLobbyGot = 1
+    gMySlot = -1
+    gLocalSlot = -1
+    try:
+        from js import window
+        window._webLobbyAction(host, "join", -1, 0)
+        play_snd(SND_CONFIRM)
+    except Exception:
         msg("NO SE PUDO CONECTAR")
 
 
@@ -5580,7 +5604,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v79")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v80")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5765,20 +5789,83 @@ def directory_poll():
 
 def web_host_announce():
     """Publish a browser lobby through the same-origin directory relay."""
-    global gWebHostId
+    global gWebHostId, gWebLobbyId
     try:
         from js import window
         if gWebHostId == 0:
             import random
             gWebHostId = random.randrange(10000, 99999)
+        gWebLobbyId = "web-%d" % gWebHostId
         window._announceLobby({
             "name": (gLobName.strip() or "LOBBY")[:15],
-            "host": "web-%d" % gWebHostId,
+            "host": gWebLobbyId,
+            "owner": gWebLobbyId,
             "region": 1,
             "filled": sum(1 for k in gKinds if k),
             "slots": MAX_PLAYERS,
             "started": gNetStarted,
+            "kinds": list(gKinds), "bots": list(gBotEnabled),
+            "teams": list(gLobTeam), "chars": list(gLobChar),
+            "ready": list(gLobReady), "clients": dict(gWebClients),
         })
+    except Exception:
+        pass
+
+
+def web_lobby_sync():
+    """Synchronize a browser lobby through the HTTP directory relay."""
+    global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar
+    if not IS_WEB or not gWebLobbyId:
+        return
+    try:
+        from js import window
+        window._pollWebLobby(gWebLobbyId)
+        state = window._webLobbyState
+        if state is None:
+            return
+        kinds = state.kinds
+        bots = state.bots
+        teams = state.teams
+        chars = state.chars
+        ready = state.ready
+        for i in range(MAX_PLAYERS):
+            gKinds[i] = int(kinds[i])
+            gBotEnabled[i] = int(bots[i])
+            gLobTeam[i] = int(teams[i])
+            gLobChar[i] = int(chars[i])
+            gLobReady[i] = int(ready[i])
+        slot = int(window._webLobbySlot)
+        if slot >= 0:
+            gMySlot = slot
+            gLocalSlot = slot
+        if gHosting:
+            requests = state.requests
+            for i in range(int(requests.length)):
+                req = requests[i]
+                client = str(req.client)
+                action = str(req.action)
+                if action == "join" and client not in gWebClients:
+                    slot = next_free_human_slot()
+                    if slot >= 0:
+                        gWebClients[client] = slot
+                        gKinds[slot] = 2 + len(gWebClients) - 1
+                        gBotEnabled[slot] = 0
+                        gLobReady[slot] = 0
+                elif client in gWebClients:
+                    old = gWebClients[client]
+                    slot = int(req.slot)
+                    if action == "sit" and 0 <= slot < MAX_PLAYERS and (slot == old or gKinds[slot] == 0):
+                        if slot != old:
+                            gKinds[slot] = gKinds[old]
+                            gBotEnabled[slot] = 0
+                            gKinds[old] = 0
+                            gBotEnabled[old] = 0
+                            gLobReady[old] = 1
+                            gWebClients[client] = slot
+                        gLobReady[gWebClients[client]] = 0
+                    elif action == "ready":
+                        gLobReady[old] = int(req.ready)
+            web_host_announce()
     except Exception:
         pass
 
@@ -6176,7 +6263,7 @@ def frame(clock=None, auto=0):
     global gJoinStartT, gLobSel, gLobCount, gOptIdx, gFullscreen, gSmooth, gVolume
     global pauseIdx, gServerStartT, gServerRestartT, gLobbyBcastT, gBeaconT, gSndSeq, gNetPhase
     global gAutoFrames, gAutoIp, gAutoTeams, gShotFile, gLobName, gLocalHost, gLang
-    global gPingT, gPingSeq, gAnnounceT, gDirectoryT, gShowFps, gFpsDisp
+    global gPingT, gPingSeq, gAnnounceT, gDirectoryT, gWebSyncT, gShowFps, gFpsDisp
     global gCustName, gCustNameMine, gCreatorIdx, gCustMine
     global gChatLines, gChatTyping, gChatInput
     global gCreatorPress, gCreatorFlashT
@@ -6762,6 +6849,11 @@ def frame(clock=None, auto=0):
     # Browsers have no UDP socket, so their lobby directory is polled here.
     if IS_WEB and gSt == ST_LOBBY and gLobStage == 3:
         _web_lobby_ingest()
+    if IS_WEB and gSt == ST_LOBBY and gLobStage in (1, 2):
+        gWebSyncT -= dt
+        if gWebSyncT <= 0:
+            gWebSyncT = 0.35
+            web_lobby_sync()
 
     # Ready is only a status. The lobby creator launches explicitly.
 

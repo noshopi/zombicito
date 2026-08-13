@@ -95,10 +95,15 @@ while ($true) {
                 $body = $head.Substring($bi + 4)
                 try {
                     $o = $body | ConvertFrom-Json
+                    $old = @($script:Lobbies | Where-Object { $_.name -eq $o.name -and $_.host -eq $o.host })
+                    $requests = if ($old.Count -gt 0) { @($old[0].requests) } else { @() }
                     $script:Lobbies = @($script:Lobbies | Where-Object { -not ($_.name -eq $o.name -and $_.host -eq $o.host) })
                     $script:Lobbies += @{ name = [string]$o.name; host = [string]$o.host; region = [int]$o.region;
                                           filled = [int]$o.filled; slots = [int]$o.slots;
-                                          started = [int]$o.started; t = Get-Date }
+                                          started = [int]$o.started; owner = [string]$o.owner;
+                                          kinds = @($o.kinds); bots = @($o.bots); teams = @($o.teams);
+                                          chars = @($o.chars); ready = @($o.ready);
+                                          clients = $o.clients; requests = $requests; t = Get-Date }
                 } catch {}
             }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
@@ -153,6 +158,43 @@ while ($true) {
             $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
             $ct = "application/json; charset=utf-8"
             $status = "200 OK"
+            $handled = $true
+        } elseif ($url -eq "/api/lobbies/action" -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $ok2 = $false
+            try {
+                $bi = $head.IndexOf("`r`n`r`n")
+                $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                $l = @($script:Lobbies | Where-Object { $_.host -eq [string]$o.host })[0]
+                if ($null -ne $l -and [string]$o.client -ne "") {
+                    if ($null -eq $l.requests) { $l.requests = @() }
+                    $l.requests += @{ client = [string]$o.client; action = [string]$o.action;
+                                      slot = [int]$o.slot; ready = [int]$o.ready }
+                    $l.t = Get-Date
+                    $ok2 = $true
+                }
+            } catch {}
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
+            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+        } elseif ($url -like "/api/lobbies/state/*") {
+            $hostId = [Uri]::UnescapeDataString($url.Substring("/api/lobbies/state/".Length))
+            $l = @($script:Lobbies | Where-Object { $_.host -eq $hostId })[0]
+            if ($null -ne $l) {
+                $json = $l | ConvertTo-Json -Compress -Depth 6
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"
+            } else {
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"error":"not found"}')
+                $ct = "application/json; charset=utf-8"; $status = "404 Not Found"
+            }
             $handled = $true
         } elseif ($url -eq "/api/designs/publish" -and $method -eq "POST") {
             $cl = 0
