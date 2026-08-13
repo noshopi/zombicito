@@ -4373,14 +4373,16 @@ def menu_enter():
         gLobStage = 4
         gLevelSel = WORLD_COUNT - 1
     elif gMenuIdx == 2:
-        gSt = ST_WEAPONS
+        gSt = ST_WORLDS
     elif gMenuIdx == 3:
-        gal_open(ST_CHARACTERS)
+        gSt = ST_WEAPONS
     elif gMenuIdx == 4:
-        gSt = ST_OPTIONS
+        gal_open(ST_CHARACTERS)
     elif gMenuIdx == 5:
-        editor_open()
+        gSt = ST_OPTIONS
     elif gMenuIdx == 6:
+        editor_open()
+    elif gMenuIdx == 7:
         gSt = ST_PROFILE
 
 
@@ -4447,7 +4449,7 @@ def weapons_click(mx, my):
             play_snd(SND_MENU)
             return
 def execute_console_command(command):
-    global gConsoleOpen, gConsoleInput, gLevelSel, gSt, gLocalSlot, gMySlot
+    global gConsoleOpen, gConsoleInput, gLevelSel, gSt, gLocalSlot, gMySlot, gTeamCount
     cmd = command.strip().lower()
     if cmd == "menu":
         gConsoleOpen = False
@@ -4461,12 +4463,21 @@ def execute_console_command(command):
         except ValueError:
             return
         if 1 <= world <= WORLD_COUNT:
+            net_close()
             gLevelSel = world - 1
+            gTeamCount = 4
             gMySlot = 0
             gLocalSlot = 0
+            for i in range(MAX_PLAYERS):
+                gKinds[i] = 0
+                gBotEnabled[i] = 1
+                gLobTeam[i] = i // 3
+                gLobChar[i] = i % 7
+                gLobReady[i] = 1
+            gBotEnabled[0] = 0
             gKinds[0] = 1
             gLobChar[0] = gLobChar[0] % 9
-            game_reset(MODE_SP, -1)
+            game_reset(MODE_TEAMS, -1)
             gSt = ST_PLAY
             gConsoleOpen = False
             gConsoleInput = ""
@@ -5790,7 +5801,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v89")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v91")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
