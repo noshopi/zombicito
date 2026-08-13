@@ -2384,6 +2384,9 @@ def update_game(dt):
                     P.jumpV = 230.0
                     play_snd(SND_MENU)
                     break
+        if P.ctrl == CTRL_BOT and (abs(P.vx) > 2.0 or abs(P.vy) > 2.0):
+            # Face the direction actually achieved after collision resolution.
+            ix, iy = P.vx, P.vy
         if abs(ix) > 0.05 or abs(iy) > 0.05:
             P.animT += dt * 9.0 * gAnimMul
             if abs(ix) > abs(iy) * 0.99:
