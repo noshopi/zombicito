@@ -5505,7 +5505,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v74")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v75")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6644,9 +6644,7 @@ def frame(clock=None, auto=0):
                     gLobStage = 0
             if gSt == ST_LOBBY and gLobStage == 3:
                 lobby_prune()
-                if IS_WEB:
-                    _web_lobby_ingest()
-                elif gSock is not None:
+                if not IS_WEB and gSock is not None:
                     gDirectoryT -= dt
                     if gDirectoryT <= 0:
                         gDirectoryT = 2.0
@@ -6667,15 +6665,20 @@ def frame(clock=None, auto=0):
             if gSt == ST_WIN and gNetPhase == 1:
                 client_setup()
                 gSt = ST_PLAY
-        if gHosting:
+    if gHosting:
+        if gSock is not None:
             gBeaconT -= dt
             if gBeaconT <= 0:
                 gBeaconT = 0.5
                 host_send_beacon()
-            gAnnounceT -= dt
-            if gAnnounceT <= 0:
-                gAnnounceT = 3.0
-                web_host_announce() if IS_WEB else host_announce()
+        gAnnounceT -= dt
+        if gAnnounceT <= 0:
+            gAnnounceT = 3.0
+            web_host_announce() if IS_WEB else host_announce()
+
+    # Browsers have no UDP socket, so their lobby directory is polled here.
+    if IS_WEB and gSt == ST_LOBBY and gLobStage == 3:
+        _web_lobby_ingest()
 
     # Ready is only a status. The lobby creator launches explicitly.
 
