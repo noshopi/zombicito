@@ -5370,13 +5370,24 @@ def _editor_ghost():
                 (gEdFW * z, gEdFH * z)).copy()
             if mirror:
                 g = pygame.transform.flip(g, True, False)
-            g.set_alpha(90)
+            # Keep the reference strong enough against the dark editor canvas,
+            # including the browser canvas where alpha is composited twice.
+            g.set_alpha(165)
             return g
     except Exception:
         pass
     
-    # NO FALLBACK to texChars - return None if no template reference
-    return None
+    # Keep a visible direction guide even if a browser asset failed to decode.
+    try:
+        z = _ed_zoom()
+        g = pygame.Surface((gEdFW * z, gEdFH * z), pygame.SRCALPHA)
+        pygame.draw.rect(g, (235, 70, 70, 220), (1, 1, gEdFW * z - 2, gEdFH * z - 2), max(1, z // 2))
+        pygame.draw.line(g, (255, 150, 90, 220), (gEdFW * z // 2, z),
+                         (gEdFW * z // 2, gEdFH * z - z), max(1, z // 2))
+        g.set_alpha(165)
+        return g
+    except Exception:
+        return None
 
 
 def _ed_template_guide():
@@ -5493,7 +5504,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v71")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v72")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
