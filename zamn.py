@@ -4483,20 +4483,22 @@ def lobby_click(mx, my):
             if not (bx <= mx <= bx + 114):
                 continue
             for m in range(3):
-                sy = 28 + m * 36
-                if sy - 5 <= my <= sy + 31:
-                    gLobSelRow = t * 3 + m
+                    sy = 28 + m * 36
+                    if sy - 5 <= my <= sy + 31:
+                        gLobSelRow = t * 3 + m
+                    if gLobSelRow == gMySlot and bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28:
+                        gLobReady[gMySlot] ^= 1
+                        if gLobStage == 2 and IS_WEB:
+                            try:
+                                from js import window
+                                window._webLobbyAction(gWebLobbyId, "ready", gMySlot, gLobReady[gMySlot])
+                            except Exception:
+                                pass
+                        elif gLobStage == 1 and IS_WEB:
+                            web_host_announce()
+                        play_snd(SND_MENU)
+                        return
                     if gLobStage == 1:
-                        if gLobSelRow == gMySlot and bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28:
-                            gLobReady[gMySlot] ^= 1
-                            if gLobStage == 2 and IS_WEB:
-                                try:
-                                    from js import window
-                                    window._webLobbyAction(gWebLobbyId, "ready", gMySlot, gLobReady[gMySlot])
-                                except Exception:
-                                    pass
-                            play_snd(SND_MENU)
-                            return
                         if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
                             if gBotEnabled[gLobSelRow]:
                                 gBotEnabled[gLobSelRow] = 0
@@ -5647,7 +5649,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v82")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v83")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5835,10 +5837,7 @@ def web_host_announce():
     global gWebHostId, gWebLobbyId
     try:
         from js import window
-        if gWebHostId == 0:
-            import random
-            gWebHostId = random.randrange(10000, 99999)
-        gWebLobbyId = "web-%d" % gWebHostId
+        gWebLobbyId = "web-" + design_owner_id()
         window._announceLobby({
             "name": (gLobName.strip() or "LOBBY")[:15],
             "host": gWebLobbyId,
