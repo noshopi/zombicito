@@ -261,13 +261,21 @@ window._announceLobby = async function (lobby) {
 };
 window._webLobbyState = null;
 window._webLobbySlot = -1;
+window._webLobbyRevision = -1;
+window._applyWebLobbyState = function (state) {
+    if (!state) return;
+    const rev = Number(state.revision || 0);
+    if (rev < window._webLobbyRevision) return;
+    window._webLobbyRevision = rev;
+    window._webLobbyState = state;
+    const clients = state.clients || {};
+    window._webLobbySlot = Number(clients[window._designOwnerId] ?? -1);
+};
 window._pollWebLobby = async function (host) {
     try {
         const r = await fetch("/api/lobbies/state/" + encodeURIComponent(host), { cache: "no-store" });
         if (!r.ok) throw new Error("lobby not found");
-        window._webLobbyState = await r.json();
-        const clients = window._webLobbyState.clients || {};
-        window._webLobbySlot = Number(clients[window._designOwnerId] ?? -1);
+        window._applyWebLobbyState(await r.json());
     } catch (e) {
         window._webLobbyState = null;
         window._webLobbySlot = -1;
@@ -275,13 +283,18 @@ window._pollWebLobby = async function (host) {
 };
 window._webLobbyAction = async function (host, action, slot, ready) {
     try {
-        await fetch("/api/lobbies/action", {
+        const r = await fetch("/api/lobbies/action", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ host: host, client: window._designOwnerId,
                                   action: action, slot: slot, ready: ready }),
             cache: "no-store"
         });
-        await window._pollWebLobby(host);
+        const result = await r.json();
+        if (result && result.state) {
+            window._applyWebLobbyState(result.state);
+        } else {
+            await window._pollWebLobby(host);
+        }
     } catch (e) {}
 };
 async function pollLobbies() {
@@ -477,10 +490,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=84")).text();
+            const src = await (await fetch(f + "?v=85")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=84")).text();
+        const shim = await (await fetch("pygame.py?v=85")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

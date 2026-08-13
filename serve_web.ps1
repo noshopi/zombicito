@@ -101,7 +101,34 @@ while ($true) {
                         @($script:Lobbies | Where-Object { $_.name -eq $o.name -and $_.host -eq $o.host })
                     }
                     $old = $same
-                    $requests = if ($old.Count -gt 0) { @($old[0].requests) } else { @() }
+                    $clients = @{}
+                    if ($o.clients) {
+                        foreach ($prop in $o.clients.psobject.Properties) {
+                            $clients[$prop.Name] = [int]$prop.Value
+                        }
+                    }
+                    if ($old.Count -gt 0 -and $old[0].clients) {
+                        foreach ($prop in $old[0].clients.GetEnumerator()) {
+                            if (-not $clients.ContainsKey([string]$prop.Key)) {
+                                $clients[[string]$prop.Key] = [int]$prop.Value
+                            }
+                        }
+                    }
+                    $revision = if ($old.Count -gt 0) { [int]$old[0].revision } else { 0 }
+                    $kinds = @($o.kinds); $bots = @($o.bots); $ready = @($o.ready)
+                    while ($kinds.Count -lt [int]$o.slots) { $kinds += 0 }
+                    while ($bots.Count -lt [int]$o.slots) { $bots += 0 }
+                    while ($ready.Count -lt [int]$o.slots) { $ready += 1 }
+                    if ($old.Count -gt 0 -and $old[0].clients) {
+                        foreach ($prop in $old[0].clients.GetEnumerator()) {
+                            $slot = [int]$prop.Value
+                            if ($slot -ge 0 -and $slot -lt $kinds.Count) {
+                                $kinds[$slot] = [int]$old[0].kinds[$slot]
+                                $bots[$slot] = 0
+                                $ready[$slot] = [int]$old[0].ready[$slot]
+                            }
+                        }
+                    }
                     if ([string]$o.host -like "web-*") {
                         $script:Lobbies = @($script:Lobbies | Where-Object { $_.host -ne $o.host })
                     } else {
@@ -111,9 +138,9 @@ while ($true) {
                                           filled = [int]$o.filled; slots = [int]$o.slots;
                                           world = [int]$o.world;
                                           started = [int]$o.started; owner = [string]$o.owner;
-                                          kinds = @($o.kinds); bots = @($o.bots); teams = @($o.teams);
-                                          chars = @($o.chars); ready = @($o.ready);
-                                          clients = $o.clients; requests = $requests; t = Get-Date }
+                                          kinds = $kinds; bots = $bots; teams = @($o.teams);
+                                          chars = @($o.chars); ready = $ready;
+                                          clients = $clients; requests = @(); revision = $revision; t = Get-Date }
                 } catch {}
             }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
@@ -132,6 +159,7 @@ while ($true) {
                 $botCount = @($details | Where-Object { $_.bot -eq 1 -and $_.kind -eq 0 }).Count
                 @{ name = $_.name; host = $_.host; region = $_.region; filled = $_.filled;
                    slots = $_.slots; started = $_.started; world = $_.world;
+                   revision = [int]$_.revision;
                    bots = $botCount; free = ([int]$_.slots - [int]$_.filled - $botCount);
                    details = $details }
             })
@@ -189,19 +217,72 @@ while ($true) {
                 $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
             }
             $ok2 = $false
+            $result = $null
+            $actionError = ""
             try {
                 $bi = $head.IndexOf("`r`n`r`n")
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
                 $l = @($script:Lobbies | Where-Object { $_.host -eq [string]$o.host })[0]
                 if ($null -ne $l -and [string]$o.client -ne "") {
-                    if ($null -eq $l.requests) { $l.requests = @() }
-                    $l.requests += @{ client = [string]$o.client; action = [string]$o.action;
-                                      slot = [int]$o.slot; ready = [int]$o.ready }
+                    if ($null -eq $l.clients) { $l.clients = @{} }
+                    if ($null -eq $l.kinds) { $l.kinds = @(0..([int]$l.slots - 1) | ForEach-Object { 0 }) }
+                    if ($null -eq $l.bots) { $l.bots = @(0..([int]$l.slots - 1) | ForEach-Object { 1 }) }
+                    if ($null -eq $l.ready) { $l.ready = @(0..([int]$l.slots - 1) | ForEach-Object { 1 }) }
+                    $kinds = @($l.kinds); $bots = @($l.bots); $ready = @($l.ready)
+                    while ($kinds.Count -lt [int]$l.slots) { $kinds += 0 }
+                    while ($bots.Count -lt [int]$l.slots) { $bots += 0 }
+                    while ($ready.Count -lt [int]$l.slots) { $ready += 1 }
+                    $client = [string]$o.client
+                    $action = [string]$o.action
+                    $slot = -1
+                    if ($l.clients.ContainsKey($client)) { $slot = [int]$l.clients[$client] }
+                    if ($action -eq "join" -and $slot -lt 0) {
+                        for ($i = 0; $i -lt [int]$l.slots; $i++) {
+                            if ([int]$kinds[$i] -eq 0 -and [int]$bots[$i] -eq 0) { $slot = $i; break }
+                        }
+                        if ($slot -lt 0) {
+                            for ($i = 0; $i -lt [int]$l.slots; $i++) {
+                                if ([int]$kinds[$i] -eq 0) { $slot = $i; break }
+                            }
+                        }
+                        if ($slot -ge 0) {
+                            $humanNo = 2 + [int]$l.clients.Count
+                            $kinds[$slot] = $humanNo
+                            $bots[$slot] = 0
+                            $ready[$slot] = 0
+                            $l.clients[$client] = $slot
+                            $l.filled = @($kinds | Where-Object { [int]$_ -gt 0 }).Count
+                            $l.revision = [int]$l.revision + 1
+                            $ok2 = $true
+                        } else { $ok2 = $false }
+                    } elseif ($action -eq "join" -and $slot -ge 0) {
+                        $ok2 = $true
+                    } elseif ($action -eq "sit" -and $slot -ge 0) {
+                        $target = [int]$o.slot
+                        if ($target -ge 0 -and $target -lt [int]$l.slots -and ($target -eq $slot -or [int]$kinds[$target] -eq 0)) {
+                            if ($target -ne $slot) {
+                                $kinds[$target] = $kinds[$slot]
+                                $bots[$target] = 0
+                                $kinds[$slot] = 0
+                                $bots[$slot] = 0
+                                $ready[$slot] = 0
+                                $l.clients[$client] = $target
+                            }
+                            $l.revision = [int]$l.revision + 1
+                            $ok2 = $true
+                        }
+                    } elseif ($action -eq "ready" -and $slot -ge 0) {
+                        $ready[$slot] = [int]$o.ready
+                        $l.revision = [int]$l.revision + 1
+                        $ok2 = $true
+                    }
+                    $l.kinds = $kinds; $l.bots = $bots; $l.ready = $ready
                     $l.t = Get-Date
-                    $ok2 = $true
+                    $result = $l
                 }
-            } catch {}
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
+            } catch { $actionError = $_.Exception.Message }
+            $payload = @{ ok = $ok2; revision = if ($result) { [int]$result.revision } else { 0 }; state = $result; error = $actionError } | ConvertTo-Json -Compress -Depth 6
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -like "/api/lobbies/state/*") {
             $hostId = [Uri]::UnescapeDataString($url.Substring("/api/lobbies/state/".Length))

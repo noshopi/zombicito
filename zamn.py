@@ -4590,6 +4590,7 @@ def web_join_lobby(host):
     gLocalSlot = -1
     try:
         from js import window
+        window._webLobbyRevision = -1
         window._webLobbyAction(host, "join", -1, 0)
         play_snd(SND_CONFIRM)
     except Exception:
@@ -5684,7 +5685,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v84")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v85")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5920,35 +5921,6 @@ def web_lobby_sync():
         if slot >= 0:
             gMySlot = slot
             gLocalSlot = slot
-        if gHosting:
-            requests = getattr(state, "requests", None)
-            request_count = int(requests.length) if requests is not None else 0
-            for i in range(request_count):
-                req = requests[i]
-                client = str(req.client)
-                action = str(req.action)
-                if action == "join" and client not in gWebClients:
-                    slot = next_free_human_slot()
-                    if slot >= 0:
-                        gWebClients[client] = slot
-                        gKinds[slot] = 2 + len(gWebClients) - 1
-                        gBotEnabled[slot] = 0
-                        gLobReady[slot] = 0
-                elif client in gWebClients:
-                    old = gWebClients[client]
-                    slot = int(req.slot)
-                    if action == "sit" and 0 <= slot < MAX_PLAYERS and (slot == old or gKinds[slot] == 0):
-                        if slot != old:
-                            gKinds[slot] = gKinds[old]
-                            gBotEnabled[slot] = 0
-                            gKinds[old] = 0
-                            gBotEnabled[old] = 0
-                            gLobReady[old] = 1
-                            gWebClients[client] = slot
-                        gLobReady[gWebClients[client]] = 0
-                    elif action == "ready":
-                        gLobReady[old] = int(req.ready)
-            web_host_announce()
     except Exception:
         pass
 
