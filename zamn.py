@@ -3285,9 +3285,6 @@ def draw_water_edges():
 
 
 def render_game():
-    if g3D:
-        render_game_3d()
-        return
     update_camera()
     vbuf.blit(texLevel, (0, 0), pygame.Rect(int(gCamX), int(gCamY), VIEW_W, VIEW_H))
     draw_water_edges()
@@ -3935,13 +3932,13 @@ def render_lobby():
             draw_text_c(vbuf, VIEW_W // 2, 126, 1, (150, 140, 160), tr("lobby_none"))
         else:
             order = sorted(range(gLobCount), key=lambda i: (gLobList[i].started, -gLobList[i].filled))
-            for pos in range(min(gLobCount, 7)):
+            for pos in range(min(gLobCount, 6)):
                 e = gLobList[order[pos]]
-                sy = 58 + pos * 20
+                sy = 58 + pos * 26
                 sel = pos == gLobSel
                 if sel:
-                    vbuf.fill((30, 18, 44), (20, sy - 2, VIEW_W - 40, 18))
-                    pygame.draw.rect(vbuf, g, (20, sy - 2, VIEW_W - 40, 18), 1)
+                    vbuf.fill((30, 18, 44), (20, sy - 3, VIEW_W - 40, 22))
+                    pygame.draw.rect(vbuf, g, (20, sy - 3, VIEW_W - 40, 22), 1)
                 name = e.name[:19].ljust(19)
                 mc = (255, 255, 120) if sel else ((110, 110, 110) if e.started else (220, 215, 230))
                 draw_text(vbuf, 22, sy, 1, mc, name)
@@ -3957,7 +3954,7 @@ def render_lobby():
                 draw_text(vbuf, 320, sy, 1, stc, tr("lobby_playing") if e.started else tr("lobby_waiting"))
                 if sel:
                     menu_cursor(14, sy + 4, "x", 1)
-            draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 52, 1, (170, 160, 185),
+            draw_text_c(vbuf, VIEW_W // 2, 214, 1, (170, 160, 185),
                         "%d LOBBY%s   -   %s" % (gLobCount, "" if gLobCount == 1 else "S",
                         WORLD_NAMES[gLevelSel % WORLD_COUNT]))
         for b, cx, label in ((0, 60, tr("ed_back")), (1, 240, tr("gal_refresh")), (2, 420, tr("lobby_join"))):
@@ -3981,13 +3978,11 @@ def render_lobby():
         draw_text_c(vbuf, 219, 114, 1, (255, 230, 120), ">")
         draw_text(vbuf, 22, 145, 1, (230, 210, 255), tr("create_teams"))
         draw_text(vbuf, 22, 158, 1, (150, 140, 160), tr("create_bots"))
-        # map preview
+        # Map artwork is intentionally not shown on the creation screen.
         sc_panel(vbuf, (252, 34, 216, 142), (16, 9, 24), g, 6)
-        ptex = world_texture()[0]
-        pw, ph = ptex.get_size()
-        psc = min(204.0 / pw, 126.0 / ph)
-        tw, th = max(1, int(pw * psc)), max(1, int(ph * psc))
-        vbuf.blit(pygame.transform.scale(ptex, (tw, th)), (252 + (216 - tw) // 2, 34 + (142 - th) // 2))
+        draw_text_c(vbuf, 360, 88, 1, WORLD_TINT[gLevelSel % WORLD_COUNT],
+                    "MAPA %d/6" % (gLevelSel + 1))
+        draw_text_c(vbuf, 360, 104, 1, (180, 170, 195), WORLD_NAMES[gLevelSel % WORLD_COUNT])
         # editor-style buttons
         for cx, label in ((62, tr("ed_back")), (160, tr("create_title"))):
             vbuf.fill((14, 8, 26), (cx - 42, 202, 84, 18))
@@ -4139,11 +4134,10 @@ def render_options():
             tr("opts_filter") % ("SMOOTH" if gSmooth else "CRISP"),
             tr("opts_vol") % gVolume,
             tr("opts_lang") % ("ES" if gLang == 0 else "EN"),
-            tr("opts_3d") % ("ON" if g3D else "OFF"),
             tr("opts_fps") % ("ON" if gShowFps else "OFF"),
             tr("opts_back")]
-    h = hover_row(68, 26, 7, 130, 350)
-    for i in range(7):
+    h = hover_row(68, 26, 6, 130, 350)
+    for i in range(6):
         sc_row(VIEW_W // 2, 68 + i * 26, 240, rows[i], i, i == gOptIdx or i == h, 0.12, 2)
         if i == 2:
             # Side arrows belong exclusively to the selected volume control.
@@ -4194,6 +4188,7 @@ def menu_enter():
     elif gMenuIdx == 1:
         gSt = ST_LOBBY
         gLobStage = 4
+        gLevelSel = WORLD_COUNT - 1
     elif gMenuIdx == 2:
         gSt = ST_WEAPONS
     elif gMenuIdx == 3:
@@ -4207,8 +4202,9 @@ def menu_enter():
 
 
 def option_enter():
-    global gFullscreen, gSmooth, gVolume, gLang, g3D, gShowFps, gSt
-    if gOptIdx == 6:
+    global gFullscreen, gSmooth, gVolume, gLang, gShowFps, gSt
+    g3D = 0
+    if gOptIdx == 5:
         gSt = ST_MENU
         play_snd(SND_MENU)
         return
@@ -4226,8 +4222,6 @@ def option_enter():
         save_lang()
         play_snd(SND_CONFIRM)
     elif gOptIdx == 4:
-        g3D = not g3D
-    elif gOptIdx == 5:
         gShowFps = not gShowFps
         save_lang()
         play_snd(SND_CONFIRM)
@@ -4350,9 +4344,9 @@ def lobby_click(mx, my):
                         else:
                             msg("NO SE PUDO CONECTAR")
                 return
-        for pos in range(min(gLobCount, 7)):
-            sy = 58 + pos * 20
-            if 20 <= mx <= VIEW_W - 20 and abs(my - sy) <= 8:
+        for pos in range(min(gLobCount, 6)):
+            sy = 58 + pos * 26
+            if 20 <= mx <= VIEW_W - 20 and sy - 10 <= my <= sy + 12:
                 gLobSel = pos
                 if gLobCount > 0:
                     if IS_WEB:
@@ -5504,7 +5498,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v72")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v73")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6455,12 +6449,10 @@ def frame(clock=None, auto=0):
                     save_lang()
                     play_snd(SND_CONFIRM)
                 elif gOptIdx == 4:
-                    g3D = not g3D
-                elif gOptIdx == 5:
                     gShowFps = not gShowFps
                     save_lang()
                     play_snd(SND_CONFIRM)
-                elif gOptIdx == 6 and kc == pygame.K_RETURN:
+                elif gOptIdx == 5 and kc == pygame.K_RETURN:
                     gSt = ST_MENU
             if kc == pygame.K_ESCAPE:
                 gSt = ST_MENU
