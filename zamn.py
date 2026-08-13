@@ -15,6 +15,7 @@ import base64
 import threading
 import urllib.request
 import urllib.parse
+import traceback
 
 import pygame
 
@@ -4477,8 +4478,19 @@ def execute_console_command(command):
             gBotEnabled[0] = 0
             gKinds[0] = 1
             gLobChar[0] = gLobChar[0] % 9
-            game_reset(MODE_TEAMS, -1)
-            gSt = ST_PLAY
+            try:
+                game_reset(MODE_TEAMS, -1)
+                gSt = ST_PLAY
+            except Exception as exc:
+                traceback.print_exc()
+                try:
+                    with open("test_error.log", "a", encoding="utf-8") as log:
+                        log.write("test %d: %r\n" % (world, exc))
+                        traceback.print_exc(file=log)
+                except OSError:
+                    pass
+                gSt = ST_MENU
+                msg("ERROR TEST %d: REVISA test_error.log" % world)
             gConsoleOpen = False
             gConsoleInput = ""
 
@@ -5801,7 +5813,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v91")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v92")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
