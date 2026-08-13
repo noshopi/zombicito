@@ -502,6 +502,7 @@ gLobSel = 0
 gPingSeq = 1
 gPingT = 0.0
 gAnnounceT = 0.0
+gDirectoryT = 0.0
 gConsoleOpen = False
 gConsoleInput = ""
 gWpnMenuSel = 0
@@ -4004,7 +4005,7 @@ def render_lobby():
                 elif gKinds[slot] >= 2:
                     who = tr("you") if mine else "PC %d" % gKinds[slot]
                 else:
-                    who = tr("cpu")
+                    who = tr("cpu") if gBotEnabled[slot] else ""
                 rowc = (255, 255, 120) if sel else ((230, 255, 190) if mine else
                        ((220, 215, 230) if gKinds[slot] else (130, 125, 150)))
                 if sel:
@@ -5463,7 +5464,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v68")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v69")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5573,6 +5574,41 @@ def render_editor():
     try:
         preview_idx = gEdAction * 8 + (int(gEdT * 8) % 8 if gEdPlay else gEdFrame)
         vbuf.blit(pygame.transform.scale(gEdFrames[preview_idx], (pcw, pch)), (px0, py0))
+    except Exception:
+        pass
+
+
+def directory_poll():
+    """Merge public relay lobbies into the native browser list."""
+    global gLobCount
+    try:
+        import json as _json
+        import urllib.request
+        data = urllib.request.urlopen(
+            "http://zombicito.duckdns.org:7070/api/lobbies", timeout=0.8).read()
+        rows = _json.loads(data.decode("utf-8"))
+        for row in rows:
+            host = str(row.get("host") or "")
+            name = str(row.get("name") or host or "LOBBY")
+            found = -1
+            for i in range(gLobCount):
+                if gLobList[i].host == host and gLobList[i].name == name:
+                    found = i
+                    break
+            if found < 0:
+                if gLobCount >= MAX_LOBBIES:
+                    continue
+                found = gLobCount
+                gLobCount += 1
+            e = gLobList[found]
+            e.host, e.addr, e.port = host, host, NET_PORT
+            e.name = name[:24]
+            e.region = int(row.get("region", 1))
+            e.filled = int(row.get("filled", 0))
+            e.slots = int(row.get("slots", MAX_PLAYERS))
+            e.started = int(row.get("started", 0))
+            e.ping = -1
+            e.lastSeen = gNetTime
     except Exception:
         pass
 
@@ -6020,7 +6056,7 @@ def frame(clock=None, auto=0):
     global gJoinStartT, gLobSel, gLobCount, gOptIdx, gFullscreen, gSmooth, gVolume
     global pauseIdx, gServerStartT, gServerRestartT, gLobbyBcastT, gBeaconT, gSndSeq, gNetPhase
     global gAutoFrames, gAutoIp, gAutoTeams, gShotFile, gLobName, gLocalHost, gLang
-    global gPingT, gPingSeq, gAnnounceT, gShowFps, gFpsDisp
+    global gPingT, gPingSeq, gAnnounceT, gDirectoryT, gShowFps, gFpsDisp
     global gCustName, gCustNameMine, gCreatorIdx, gCustMine
     global gChatLines, gChatTyping, gChatInput
     global gCreatorPress, gCreatorFlashT
@@ -6568,6 +6604,10 @@ def frame(clock=None, auto=0):
                 if IS_WEB:
                     _web_lobby_ingest()
                 elif gSock is not None:
+                    gDirectoryT -= dt
+                    if gDirectoryT <= 0:
+                        gDirectoryT = 2.0
+                        directory_poll()
                     gPingT -= dt
                     if gPingT <= 0:
                         gPingT = 0.8
