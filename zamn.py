@@ -593,6 +593,7 @@ gEdFW = gEdFH = 23
 gEdAction = gEdFrame = 0
 gEdColor = 2
 gEdErase = False
+gEdBrush = 1
 gEdL1 = True        # layer 1: your drawing (painted pixels)
 gEdL2 = True        # layer 2: gallery guide (transparent reference)
 gEdPlay = False
@@ -4811,6 +4812,7 @@ def neighbors_open():
     gEdColor = 2
     gEdErase = False
     gEdBrush = 1
+    gEdBrush = 1
     gEdL1 = gEdL2 = True
     gEdPlay = False
     gEdT = gEdFlashT = gEdButtonT = 0.0
@@ -5532,7 +5534,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v76")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v77")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
