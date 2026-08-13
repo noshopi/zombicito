@@ -171,7 +171,7 @@ ZOM2_UP = _row8(33, 48, 96)
 PACK_JOIN = struct.Struct("<B")
 PACK_LOBBY = struct.Struct("<4B" + "12B" + "12B" + "12B" + "12B" + "12B")
 PACK_INPUT = struct.Struct("<4B")
-PACK_SNAP = struct.Struct("<BBBBBBBB" + "4h" + "4l" + "2h8B" * 12 + "2h4B" * 32 + "2hB" * 64 + "2B" * 16 + "3h2B" * 16 + "2B" * 8 + "40s" + "B")
+PACK_SNAP = struct.Struct("<BBBBBBBB" + "4h" + "4l" + "2h8B" * 12 + "2h6B" * 32 + "2hB" * 64 + "2B" * 16 + "3h2B" * 16 + "2B" * 8 + "40s" + "B")
 PACK_BEACON = struct.Struct("<5B16s16sB")
 PACK_EDIT = struct.Struct("<6B")
 PACK_PING = struct.Struct("<2B")
@@ -324,7 +324,7 @@ class Player:
 
 
 class Zombie:
-    __slots__ = ("x", "y", "st", "animT", "hurtT", "frame", "hp", "dir", "used", "kind")
+    __slots__ = ("x", "y", "st", "animT", "hurtT", "frame", "hp", "dir", "used", "kind", "team", "respawns")
 
     def __init__(self):
         self.x = self.y = 0.0
@@ -336,6 +336,8 @@ class Zombie:
         self.dir = 0
         self.used = 0
         self.kind = 0
+        self.team = 0
+        self.respawns = 0
 
 
 class Bullet:
@@ -1686,6 +1688,26 @@ def pack_buttons(ix, iy, fire):
 
 
 # ---------------- zombies / bullets ----------------
+def respawn_zombie(z):
+    for _ in range(40):
+        if gEdgeTiles:
+            tile = random.choice(gEdgeTiles)
+            tx, ty = tile % TW, tile // TW
+        else:
+            tx, ty = random.randrange(TW), random.randrange(TH)
+        if not gWalk[ty * TW + tx]:
+            continue
+        x, y = tx * TS + 8.0, ty * TS + 8.0
+        if any((x - gP[i].x) ** 2 + (y - gP[i].y) ** 2 < 120 * 120
+               for i in range(gNumPlayers) if gP[i].used):
+            continue
+        z.x, z.y = x, y
+        z.st, z.animT, z.hurtT, z.frame, z.dir = 0, 0.0, 0.0, 0, 0
+        z.hp = ZOMBIE_KINDS[z.kind][1]
+        return True
+    return False
+
+
 def spawn_zombie():
     used = sum(1 for z in gZ if z.used)
     cap = (4 + 3 * gNumPlayers) if gMode == MODE_TEAMS else 20
@@ -1731,6 +1753,8 @@ def spawn_zombie():
                 else:
                     kind = 0
                 z.x, z.y, z.st, z.animT, z.hurtT, z.frame, z.dir, z.used, z.kind = x, y, 0, 0.0, 0.0, 0, 0, 1, kind
+                z.team = 0
+                z.respawns = 0
                 z.hp = ZOMBIE_KINDS[kind][1]
                 snd_event(SND_SPAWN)
                 return
@@ -2127,7 +2151,8 @@ def host_send_snapshot():
                1 if P.stunT > 0 else 0, 1 if P.ctrl == CTRL_BOT else 0]
     zb = []
     for z in gZ:
-        zb += [int(z.x), int(z.y), z.st, z.frame, z.dir, z.used]
+        zb += [int(z.x), int(z.y), z.st, z.frame, z.dir, z.used,
+               max(0, min(255, z.hp)), z.team % 4]
     bl = []
     bn = 0
     for b in gB:
@@ -2202,8 +2227,9 @@ def client_apply_snapshot(data):
         z = gZ[i]
         z.x, z.y = float(v[idx]), float(v[idx + 1])
         z.st, z.frame, z.dir, z.used = v[idx + 2], v[idx + 3], v[idx + 4], v[idx + 5]
+        z.hp, z.team = v[idx + 6], v[idx + 7]
         z.hurtT = 0.0
-        idx += 6
+        idx += 8
     for b in gB:
         b.used = 0
     for i in range(64):
@@ -2523,7 +2549,10 @@ def update_game(dt):
         if z.st == 2:
             z.frame = int(z.animT * 9.0)
             if z.frame >= len(ZOM_DIE):
-                z.used = 0
+                if z.respawns < 3 and respawn_zombie(z):
+                    z.respawns += 1
+                else:
+                    z.used = 0
             continue
         if z.hurtT > 0:
             z.hurtT -= dt
@@ -2539,6 +2568,7 @@ def update_game(dt):
             if d < best:
                 best = d
                 tx, ty = gP[p].x, gP[p].y
+                z.team = gP[p].team
                 found = True
         for v in range(gNumVictims):
             if gV[v].st != 0:
@@ -3381,6 +3411,15 @@ def render_game():
                 vbuf.blit(sub, (dx, dy))
             else:
                 blit_sheet(vbuf, tz, fr, z.x + ox, z.y + 8 + oy, flip)
+        if z.st != 2:
+            sx, sy = int(z.x - gCamX), int(z.y - gCamY)
+            max_hp = max(1, ZOMBIE_KINDS[z.kind][1])
+            bar_w = 28
+            fill_w = max(1, int(bar_w * max(0, z.hp) / max_hp))
+            team_col = TEAMCOL[z.team % len(TEAMCOL)]
+            vbuf.fill((12, 8, 16), (sx - bar_w // 2, sy - 45, bar_w, 5))
+            pygame.draw.rect(vbuf, team_col, (sx - bar_w // 2, sy - 45, bar_w, 5), 1)
+            vbuf.fill(team_col, (sx - bar_w // 2 + 1, sy - 44, fill_w - 1, 3))
     for p in range(gNumPlayers):
         render_player(gP[p], p)
     for i in range(MAX_BULLETS):
@@ -5608,7 +5647,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v81")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v82")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
