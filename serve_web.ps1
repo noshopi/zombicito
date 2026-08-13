@@ -193,7 +193,7 @@ while ($true) {
                     $owner = ([string]$o.owner -replace "[^A-Za-z0-9_-]", "_")
                     if ($owner.Length -gt 32) { $owner = $owner.Substring(0, 32) }
                     if ($owner.Trim() -eq "") { $owner = "anonymous" }
-                    $prefix = if ([bool]$o.public) { "public" } else { $owner }
+                    $prefix = if ([bool]$o.public) { "public__{0}" -f $owner } else { $owner }
                     if ($nm.Trim() -ne "" -and -not [string]::IsNullOrEmpty([string]$o.png)) {
                         Get-ChildItem -Path $designsDir -Filter ("{0}__{1}__*.png" -f $prefix, $nm) -ErrorAction SilentlyContinue | Remove-Item -Force
                         $f = Join-Path $designsDir ("{0}__{1}__{2}.png" -f $prefix, $nm, [DateTime]::Now.Ticks)
@@ -312,11 +312,14 @@ while ($true) {
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
                 $owner = ([string]$o.owner -replace "[^A-Za-z0-9_-]", "_")
                 $id = [IO.Path]::GetFileName([string]$o.id)
+                $publishName = ([string]$o.name -replace "[^A-Za-z0-9 _\-]", "_").Trim()
+                if ($publishName.Length -gt 24) { $publishName = $publishName.Substring(0, 24) }
                 $source = Join-Path $designsDir $id
                 if ($owner -and $id.StartsWith($owner + "__") -and (Test-Path $source -PathType Leaf)) {
-                    $parts = ([IO.Path]::GetFileNameWithoutExtension($id) -split "__", 3)
+                    $parts = ([IO.Path]::GetFileNameWithoutExtension($id) -split "__", 4)
                     if ($parts.Count -ge 3) {
-                        $target = Join-Path $designsDir ("public__{0}__{1}.png" -f $parts[1], $parts[2])
+                        if (-not $publishName) { $publishName = $parts[1] }
+                        $target = Join-Path $designsDir ("public__{0}__{1}__{2}.png" -f $owner, $publishName, $parts[2])
                         Move-Item -LiteralPath $source -Destination $target -Force
                         $ok2 = $true
                     }
@@ -326,12 +329,49 @@ while ($true) {
             $ct = "application/json; charset=utf-8"
             $status = "200 OK"
             $handled = $true
+        } elseif ($url -eq "/api/designs/rename" -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $ok2 = $false
+            try {
+                $bi = $head.IndexOf("`r`n`r`n")
+                $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                $owner = ([string]$o.owner -replace "[^A-Za-z0-9_-]", "_")
+                $nm = ([string]$o.name -replace "[^A-Za-z0-9 _\-]", "_").Trim()
+                if ($nm.Length -gt 24) { $nm = $nm.Substring(0, 24) }
+                $id = [IO.Path]::GetFileName([string]$o.id)
+                $source = Join-Path $designsDir $id
+                $base = [IO.Path]::GetFileNameWithoutExtension($id)
+                $parts = $base -split "__", 4
+                $owned = ($id.StartsWith($owner + "__") -or $id.StartsWith("public__" + $owner + "__"))
+                if ($owned -and $nm -and $parts.Count -ge 3 -and (Test-Path $source -PathType Leaf)) {
+                    if ($parts[0] -eq "public") {
+                        $targetName = "public__{0}__{1}__{2}.png" -f $owner, $nm, $parts[3]
+                    } else {
+                        $targetName = "{0}__{1}__{2}.png" -f $owner, $nm, $parts[2]
+                    }
+                    Move-Item -LiteralPath $source -Destination (Join-Path $designsDir $targetName) -Force
+                    $ok2 = $true
+                }
+            } catch {}
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
+            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -eq "/api/designs/mine" -or $url -like "/api/designs/mine/*") {
             $owner = [Uri]::UnescapeDataString($url.Substring("/api/designs/mine/".Length)) -replace "[^A-Za-z0-9_-]", "_"
-            $list = @(Get-ChildItem -Path $designsDir -Filter ("{0}__*.png" -f $owner) -ErrorAction SilentlyContinue | ForEach-Object {
-                $parts = $_.BaseName -split "__", 3
-                @{ id = $_.Name; name = if ($parts.Count -ge 2) { $parts[1] } else { $_.BaseName }; bytes = $_.Length;
-                   date = $_.LastWriteTime.ToString("dd/MM HH:mm") }
+            $private = @(Get-ChildItem -Path $designsDir -Filter ("{0}__*.png" -f $owner) -ErrorAction SilentlyContinue)
+            $published = @(Get-ChildItem -Path $designsDir -Filter ("public__{0}__*.png" -f $owner) -ErrorAction SilentlyContinue)
+            $list = @($private + $published | ForEach-Object {
+                $parts = $_.BaseName -split "__", 4
+                $nm = if ($parts[0] -eq "public") { $parts[2] } elseif ($parts.Count -ge 2) { $parts[1] } else { $_.BaseName }
+                @{ id = $_.Name; name = $nm; bytes = $_.Length;
+                   public = ($parts[0] -eq "public"); date = $_.LastWriteTime.ToString("dd/MM HH:mm") }
             })
             $json = $list | ConvertTo-Json -Compress
             if ($null -eq $json) { $json = "[]" }
@@ -340,8 +380,8 @@ while ($true) {
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -eq "/api/designs") {
             $list = @(Get-ChildItem -Path $designsDir -Filter "public__*.png" -ErrorAction SilentlyContinue | ForEach-Object {
-                $parts = $_.BaseName -split "__", 3
-                @{ id = $_.Name; name = if ($parts.Count -ge 2) { $parts[1] } else { $_.BaseName }; bytes = $_.Length;
+                $parts = $_.BaseName -split "__", 4
+                @{ id = $_.Name; name = if ($parts[0] -eq "public" -and $parts.Count -ge 3) { $parts[2] } elseif ($parts.Count -ge 2) { $parts[1] } else { $_.BaseName }; bytes = $_.Length;
                    date = $_.LastWriteTime.ToString("dd/MM HH:mm") }
             })
             $json = $list | ConvertTo-Json -Compress

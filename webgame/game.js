@@ -344,13 +344,25 @@ window._refreshMyDesigns = async function () {
         window._gGalState = "error";
     }
 };
-window._publishDesign = async function (id, owner) {
+window._publishDesign = async function (id, owner, name) {
     try {
         const r = await fetch("/api/designs/publish", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: id, owner: owner }), cache: "no-store"
+            body: JSON.stringify({ id: id, owner: owner, name: name || "" }), cache: "no-store"
         });
         if (!r.ok) throw new Error("publish failed");
+        await window._refreshMyDesigns();
+    } catch (e) {
+        window._gUpState = 3;
+    }
+};
+window._renameDesign = async function (id, owner, name) {
+    try {
+        const r = await fetch("/api/designs/rename", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: id, owner: owner, name: name }), cache: "no-store"
+        });
+        if (!r.ok) throw new Error("rename failed");
         await window._refreshMyDesigns();
     } catch (e) {
         window._gUpState = 3;
@@ -491,10 +503,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=92")).text();
+            const src = await (await fetch(f + "?v=93")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=92")).text();
+        const shim = await (await fetch("pygame.py?v=93")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

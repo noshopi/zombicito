@@ -40,7 +40,7 @@ ASSETS = "/assets" if IS_WEB else os.path.join(os.path.dirname(os.path.abspath(_
 
 MODE_SP, MODE_TEAMS = 0, 1
 CTRL_LOCAL, CTRL_NET, CTRL_BOT = 0, 1, 2
-ST_MENU, ST_LOBBY, ST_OPTIONS, ST_PLAY, ST_PAUSE, ST_WIN, ST_GAMEOVER, ST_CREATOR, ST_PROFILE, ST_EDITOR, ST_GALLERY, ST_WEAPONS, ST_CHARACTERS, ST_WORLDS = range(14)
+ST_MENU, ST_LOBBY, ST_OPTIONS, ST_PLAY, ST_PAUSE, ST_WIN, ST_GAMEOVER, ST_CREATOR, ST_PROFILE, ST_EDITOR, ST_GALLERY, ST_WEAPONS, ST_CHARACTERS, ST_WORLDS, ST_WORLD_EDITOR = range(15)
 
 TEAMCOL = [(110, 235, 70), (235, 70, 70), (90, 150, 255), (255, 220, 60)]
 TEAMNAME = ["GREEN", "RED", "BLUE", "YELLOW"]
@@ -117,6 +117,10 @@ BOUNCE_LAYOUT = [[(720, 320)], [(1480, 320)], [(720, 980)],
                  [(1480, 980)], [(720, 720)], [(1480, 720)]]
 gWorldEditSel = 5
 gWorldExpand = [0] * WORLD_COUNT
+gWorldEditLayer = "upper"
+gWorldEditorBase = None
+gWorldEditorUpper = None
+gWorldEditorDirty = False
 
 # frame rects (mirror sprites.h, jitter-free recentered sheets)
 ZEKE_DOWN = [(86, 5, 16, 36), (108, 4, 16, 37), (128, 4, 16, 37), (148, 4, 16, 37)]
@@ -614,6 +618,7 @@ gEdT = 0.0
 gEdFlashT = 0.0
 gEdButtonT = 0.0
 gEdPressed = ""
+gEdNameTyping = False
 gEdMode = "character"
 gNeighborDrawn = None
 gEdRefTex = None       # downloaded gallery design used as drawing guide
@@ -639,6 +644,8 @@ gGalUseReq = False
 gGalReturnState = ST_EDITOR
 gGalMode = "characters"
 gGalMine = False
+gGalRenameInput = ""
+gGalNameTyping = False
 gUpState = 0              # design upload: 0 idle 1 uploading 2 ok 3 error
 
 
@@ -4299,9 +4306,8 @@ def render_worlds():
     sw, sh = max(1, int(pw * scale)), max(1, int(ph * scale))
     vbuf.blit(pygame.transform.scale(preview, (sw, sh)),
               (166 + (292 - sw) // 2, 50 + (132 - sh) // 2))
-    draw_text(vbuf, 166, 188, 1, (255, 230, 120),
-              "EXPANSION LATERAL: %d" % gWorldExpand[gWorldEditSel])
-    for cx, label in ((220, "< EXPANDIR"), (330, "EXPANDIR >"), (430, tr("ed_back"))):
+    draw_text(vbuf, 166, 188, 1, (180, 170, 195), "SELECCIONA UN MUNDO PARA EDITARLO")
+    for cx, label in ((330, "EDITAR"), (430, tr("ed_back"))):
         vbuf.fill((14, 8, 26), (cx - 46, 230, 92, 16))
         pygame.draw.rect(vbuf, (200, 160, 66), (cx - 46, 230, 92, 16), 1)
         draw_text_c(vbuf, cx, 232, 1, (255, 230, 120), label)
@@ -4316,17 +4322,73 @@ def worlds_click(mx, my):
             _world_preview_cache = None
             play_snd(SND_MENU)
             return
-    if 174 <= mx <= 266 and 230 <= my <= 248:
-        gWorldExpand[gWorldEditSel] = max(0, gWorldExpand[gWorldEditSel] - 1)
-        _world_preview_cache = None
-        play_snd(SND_MENU)
-    elif 284 <= mx <= 376 and 230 <= my <= 248:
-        gWorldExpand[gWorldEditSel] = min(8, gWorldExpand[gWorldEditSel] + 1)
-        _world_preview_cache = None
-        play_snd(SND_MENU)
+    if 284 <= mx <= 376 and 230 <= my <= 248:
+        world_editor_open()
+        play_snd(SND_CONFIRM)
     elif 384 <= mx <= 476 and 230 <= my <= 248:
         gSt = ST_MENU
         play_snd(SND_MENU)
+
+
+def world_editor_open():
+    global gWorldEditorBase, gWorldEditorUpper, gWorldEditLayer, gWorldEditorDirty, gSt
+    gWorldEditorBase = texWorlds[gWorldEditSel].copy()
+    gWorldEditorUpper = upperWorlds[gWorldEditSel].copy() if upperWorlds else pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA)
+    gWorldEditLayer = "upper"
+    gWorldEditorDirty = False
+    gSt = ST_WORLD_EDITOR
+
+
+def render_world_editor():
+    render_bg_sc()
+    sc_title(VIEW_W // 2, 18, "EDITOR DE MUNDO", WORLD_TINT[gWorldEditSel], 2)
+    draw_text(vbuf, 12, 34, 1, (255, 230, 120), "%d. %s" % (gWorldEditSel + 1, WORLD_NAMES[gWorldEditSel]))
+    sc_panel(vbuf, (10, 48, 460, 150), (14, 8, 26), _gold, 8)
+    base = gWorldEditorBase or texWorlds[gWorldEditSel]
+    upper = gWorldEditorUpper
+    scale = min(444.0 / base.get_width(), 134.0 / base.get_height())
+    sw, sh = max(1, int(base.get_width() * scale)), max(1, int(base.get_height() * scale))
+    px, py = 18 + (444 - sw) // 2, 56 + (134 - sh) // 2
+    vbuf.blit(pygame.transform.scale(base, (sw, sh)), (px, py))
+    if upper is not None:
+        vbuf.blit(pygame.transform.scale(upper, (sw, sh)), (px, py))
+    draw_text(vbuf, 12, 204, 1, (205, 198, 220),
+              "CAPA: " + ("SUPERIOR" if gWorldEditLayer == "upper" else "FONDO"))
+    for cx, label in ((62, "FONDO"), (160, "SUPERIOR"), (270, "GUARDAR"), (420, tr("ed_back"))):
+        vbuf.fill((14, 8, 26), (cx - 46, 222, 92, 18))
+        pygame.draw.rect(vbuf, WORLD_TINT[gWorldEditSel] if label == ("SUPERIOR" if gWorldEditLayer == "upper" else "FONDO") else (200, 160, 66),
+                         (cx - 46, 222, 92, 18), 1)
+        draw_text_c(vbuf, cx, 225, 1, (255, 230, 120), label)
+
+
+def world_editor_click(mx, my):
+    global gWorldEditLayer, gWorldEditorDirty, gSt, texWorlds, upperWorlds
+    if 16 <= mx <= 464 and 54 <= my <= 190:
+        base = gWorldEditorBase or texWorlds[gWorldEditSel]
+        scale = min(444.0 / base.get_width(), 134.0 / base.get_height())
+        sw, sh = max(1, int(base.get_width() * scale)), max(1, int(base.get_height() * scale))
+        px, py = 18 + (444 - sw) // 2, 56 + (134 - sh) // 2
+        if px <= mx < px + sw and py <= my < py + sh:
+            wx = int((mx - px) / scale)
+            wy = int((my - py) / scale)
+            target = gWorldEditorUpper if gWorldEditLayer == "upper" else gWorldEditorBase
+            if target is not None:
+                color = (255, 210, 110, 180) if gWorldEditLayer == "upper" else (120, 90, 50)
+                pygame.draw.rect(target, color, (wx - 12, wy - 12, 24, 24), 2)
+                gWorldEditorDirty = True
+            return
+    if 16 <= mx <= 108 and 222 <= my <= 244:
+        gWorldEditLayer = "base"
+    elif 114 <= mx <= 206 and 222 <= my <= 244:
+        gWorldEditLayer = "upper"
+    elif 224 <= mx <= 316 and 222 <= my <= 244:
+        if gWorldEditorBase is not None:
+            texWorlds[gWorldEditSel] = gWorldEditorBase
+        if gWorldEditorUpper is not None and upperWorlds:
+            upperWorlds[gWorldEditSel] = gWorldEditorUpper
+        gWorldEditorDirty = False
+    elif 374 <= mx <= 466 and 222 <= my <= 244:
+        gSt = ST_WORLDS
 
 
 def mouse_vbuf():
@@ -5009,6 +5071,7 @@ def editor_open():
     gEdFlashT = 0.0
     gEdButtonT = 0.0
     gEdPressed = ""
+    gEdNameTyping = False
     gSt = ST_EDITOR
 
 
@@ -5427,7 +5490,7 @@ def gal_start_upload(name):
 
 
 def gal_open(return_state=ST_EDITOR):
-    global gGalSel, gGalState, gGalDataState, gDesignData, gDesigns, gGalFlashT, gGalUseReq, gSt, gGalReturnState, gGalMode, gGalMine
+    global gGalSel, gGalState, gGalDataState, gDesignData, gDesigns, gGalFlashT, gGalUseReq, gSt, gGalReturnState, gGalMode, gGalMine, gGalRenameInput, gGalNameTyping
     gGalSel = 0
     gGalState = "idle"
     gGalDataState = "idle"
@@ -5437,6 +5500,8 @@ def gal_open(return_state=ST_EDITOR):
     gGalReturnState = return_state
     gGalMode = "characters" if return_state == ST_CHARACTERS else ("neighbors" if gEdMode == "neighbor" else "characters")
     gGalMine = False
+    gGalRenameInput = ""
+    gGalNameTyping = False
     gDesigns = _gal_locales()
     gal_fetch_list()
     gSt = ST_GALLERY
@@ -5452,13 +5517,14 @@ def gal_publish_selected():
     if IS_WEB:
         try:
             from js import window
-            window._publishDesign(pid, design_owner_id())
+            window._publishDesign(pid, design_owner_id(), gGalRenameInput.strip()[:24])
             gGalFlashT = 1.2
         except Exception:
             pass
     else:
         try:
-            body = json.dumps({"id": pid, "owner": design_owner_id()}).encode("utf-8")
+            body = json.dumps({"id": pid, "owner": design_owner_id(),
+                               "name": gGalRenameInput.strip()[:24]}).encode("utf-8")
             req = urllib.request.Request(SITE + "/api/designs/publish", data=body,
                                          headers={"Content-Type": "application/json"})
             urllib.request.urlopen(req, timeout=6).read()
@@ -5468,11 +5534,38 @@ def gal_publish_selected():
             pass
 
 
+def gal_rename_selected():
+    global gGalFlashT, gGalNameTyping
+    if not gGalMine or not (0 <= gGalSel < len(gDesigns)):
+        return
+    pid = gDesigns[gGalSel].get("id")
+    name = gGalRenameInput.strip()[:24]
+    if not pid or not name:
+        return
+    gGalNameTyping = False
+    if IS_WEB:
+        try:
+            from js import window
+            window._renameDesign(pid, design_owner_id(), name)
+            gGalFlashT = 1.2
+        except Exception:
+            pass
+    else:
+        try:
+            body = json.dumps({"id": pid, "owner": design_owner_id(), "name": name}).encode("utf-8")
+            req = urllib.request.Request(SITE + "/api/designs/rename", data=body,
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=6).read()
+            gal_fetch_list()
+            gGalFlashT = 1.2
+        except Exception:
+            pass
 def gal_select(i):
-    global gGalSel, gDesignData, gGalDataState, gEdRefTex, gEdGhostMirrorLeft, gEdGhostIsTemplate
+    global gGalSel, gGalRenameInput, gDesignData, gGalDataState, gEdRefTex, gEdGhostMirrorLeft, gEdGhostIsTemplate
     gGalSel = i
     if 0 <= i < len(gDesigns):
         g = gDesigns[i]
+        gGalRenameInput = g.get("name", "") if gGalMine else ""
         if g.get("local"):
             if g.get("neighbor"):
                 if g["id"] == "nmine":
@@ -5603,7 +5696,10 @@ def gal_apply():
 
 
 def gal_click(mx, my):
-    global gGalSel, gSt, gGalReturnState, gGalMine, gDesignData
+    global gGalSel, gSt, gGalReturnState, gGalMine, gDesignData, gGalNameTyping
+    if gGalMine and 326 <= mx <= 468 and 174 <= my <= 190:
+        gGalNameTyping = True
+        return
     rows = min(len(gDesigns), 12)
     for i in range(rows):
         if 20 <= mx <= 310 and abs(my - (44 + i * 12 + 5)) <= 6:
@@ -5622,7 +5718,13 @@ def gal_click(mx, my):
                 play_snd(SND_MENU)
                 gSt = ST_MENU if gGalReturnState == ST_CHARACTERS else gGalReturnState
             elif b == 1:
-                gal_publish_selected() if gGalMine else gal_use_now()
+                if gGalMine:
+                    if 0 <= gGalSel < len(gDesigns) and gDesigns[gGalSel].get("public"):
+                        gal_rename_selected()
+                    else:
+                        gal_publish_selected()
+                else:
+                    gal_use_now()
             elif b == 2:
                 gal_fetch_list()
             else:
@@ -5708,7 +5810,12 @@ def _ed_template_guide():
 
 
 def editor_click(mx, my):
-    global gEdAction, gEdColor, gEdErase, gEdPlay, gEdFlashT, gSt, gEdL1, gEdL2, gEdFrame
+    global gEdAction, gEdColor, gEdErase, gEdPlay, gEdFlashT, gSt, gEdL1, gEdL2, gEdFrame, gEdNameTyping
+    global gCustName
+    if 414 <= mx <= 476 and 74 <= my <= 92:
+        gEdNameTyping = True
+        play_snd(SND_MENU)
+        return
     if _ed_rect_contains(_ed_mode_rect("character"), mx, my):
         _ed_press("mode_character")
         editor_open()
@@ -5806,7 +5913,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v92")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v93")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5818,6 +5925,12 @@ def render_editor():
         vbuf.fill(fill, (434, draw_y, bw, bh))
         pygame.draw.rect(vbuf, (255, 245, 160) if pressed else (200, 160, 66), (434, draw_y, bw, bh), 1)
         draw_text_c(vbuf, 455, draw_y + 1, 1, (255, 230, 120), label)
+    # Name belongs to the design itself and stays below the PERS/VEC switch.
+    vbuf.fill((30, 18, 44), (414, 74, 62, 18))
+    pygame.draw.rect(vbuf, (200, 160, 66), (414, 74, 62, 18), 1)
+    draw_text(vbuf, 418, 78, 1, (255, 230, 120), (gCustName or "NOMBRE")[:8])
+    if gEdNameTyping:
+        draw_text(vbuf, 418 + min(8, len(gCustName)) * 8, 78, 1, (255, 255, 120), "_")
     # action tabs (the neighbor editor has no direction tabs)
     for a in range(4) if gEdMode == "character" else []:
         cx = 84 + a * 104
@@ -6048,7 +6161,7 @@ def web_lobby_sync():
 
 def render_gallery():
     render_bg_sc()
-    gallery_title = "VECINOS" if gGalMode == "neighbors" else (tr("menu_characters") if gGalReturnState == ST_CHARACTERS else tr("gal_title"))
+    gallery_title = "MIS PERSONAJES" if gGalMine else ("VECINOS" if gGalMode == "neighbors" else (tr("menu_characters") if gGalReturnState == ST_CHARACTERS else tr("gal_title")))
     sc_title(VIEW_W // 2, 12, gallery_title, (200, 160, 66), 2)
     n = len(gDesigns)
     if gGalState == "loading":
@@ -6071,6 +6184,10 @@ def render_gallery():
             if "date" in g:
                 draw_text(vbuf, 196, y, 1, (150, 140, 160), g["date"])
     sc_panel(vbuf, (326, 44, 142, 144), (14, 8, 26), _gold, 8)
+    if gGalMine:
+        vbuf.fill((30, 18, 44), (326, 174, 142, 16))
+        pygame.draw.rect(vbuf, _gold, (326, 174, 142, 16), 1)
+        draw_text(vbuf, 332, 177, 1, (255, 230, 120), (gGalRenameInput or "NOMBRE")[:16])
     if gGalDataState == "loading":
         draw_text_c(vbuf, 397, 110, 1, (205, 198, 220), tr("gal_loading"))
     elif gGalDataState == "error":
@@ -6093,12 +6210,16 @@ def render_gallery():
             draw_text_c(vbuf, 397, 56 + th + 8, 1, (255, 230, 120), nm)
         else:
             draw_text_c(vbuf, 397, 110, 1, (255, 140, 90), tr("gal_noconn"))
-    for b in range(3):
-        cx = (80, 240, 400)[b]
+    buttons = [(65, 0), (175, 1), (285, 2)]
+    if gGalReturnState == ST_CHARACTERS:
+        buttons.append((415, 3))
+    for cx, b in buttons:
         vbuf.fill((14, 8, 26), (cx - 50, 196, 100, 16))
         pygame.draw.rect(vbuf, (200, 160, 66), (cx - 50, 196, 100, 16), 1)
-        draw_text_c(vbuf, cx, 198, 1, (255, 230, 120),
-                    [tr("ed_back"), tr("gal_use"), tr("gal_refresh")][b])
+        current_public = bool(gGalMine and 0 <= gGalSel < len(gDesigns) and gDesigns[gGalSel].get("public"))
+        labels = [tr("ed_back"), ("RENOMBRAR" if current_public else "PUBLICAR") if gGalMine else tr("gal_use"),
+                  tr("gal_refresh"), "PUBLICOS" if gGalMine else "MIS PERSONAJES"]
+        draw_text_c(vbuf, cx, 198, 1, (255, 230, 120), labels[b])
     if gGalFlashT > 0:
         draw_text_c(vbuf, VIEW_W // 2, 182, 1, (120, 255, 160), tr("gal_used"))
 
@@ -6201,6 +6322,8 @@ def rerender_current():
         render_options()
     elif gSt == ST_WORLDS:
         render_worlds()
+    elif gSt == ST_WORLD_EDITOR:
+        render_world_editor()
     elif gSt == ST_CREATOR:
         render_creator()
     elif gSt == ST_WIN:
@@ -6442,7 +6565,7 @@ def frame(clock=None, auto=0):
     global pauseIdx, gServerStartT, gServerRestartT, gLobbyBcastT, gBeaconT, gSndSeq, gNetPhase
     global gAutoFrames, gAutoIp, gAutoTeams, gShotFile, gLobName, gLocalHost, gLang
     global gPingT, gPingSeq, gAnnounceT, gDirectoryT, gWebSyncT, gShowFps, gFpsDisp
-    global gCustName, gCustNameMine, gCreatorIdx, gCustMine
+    global gCustName, gCustNameMine, gCreatorIdx, gCustMine, gEdNameTyping, gGalNameTyping, gGalRenameInput
     global gChatLines, gChatTyping, gChatInput
     global gCreatorPress, gCreatorFlashT
     global gEdFrame, gEdAction, gEdColor, gEdErase, gEdL1, gEdL2, gEdPlay, gEdT, gEdFlashT, gEdGhostIsTemplate, gEdButtonT, gEdPressed
@@ -6561,6 +6684,8 @@ def frame(clock=None, auto=0):
                     options_click(mx, my)
                 elif gSt == ST_WORLDS:
                     worlds_click(mx, my)
+                elif gSt == ST_WORLD_EDITOR:
+                    world_editor_click(mx, my)
                 elif gSt == ST_LOBBY:
                     lobby_click(mx, my)
                 elif gSt == ST_CREATOR:
@@ -6814,6 +6939,22 @@ def frame(clock=None, auto=0):
             if kc == pygame.K_ESCAPE:
                 gSt = ST_MENU
         elif gSt == ST_EDITOR:
+            if gEdNameTyping:
+                if kc == pygame.K_ESCAPE or kc == pygame.K_RETURN:
+                    gEdNameTyping = False
+                elif kc == pygame.K_BACKSPACE:
+                    gCustName = gCustName[:-1]
+                else:
+                    ch = None
+                    if pygame.K_a <= kc <= pygame.K_z:
+                        ch = chr(kc)
+                    elif pygame.K_0 <= kc <= pygame.K_9:
+                        ch = chr(kc)
+                    elif kc in (pygame.K_SPACE, pygame.K_MINUS):
+                        ch = " " if kc == pygame.K_SPACE else "-"
+                    if ch and len(gCustName) < 18:
+                        gCustName += ch.upper() if ch.isalpha() and pygame.key.get_mods() & pygame.KMOD_SHIFT else ch
+                continue
             if kc in (pygame.K_LEFT, pygame.K_a):
                 gEdFrame = (gEdFrame + 7) % 8
                 play_snd(SND_MENU)
@@ -6851,6 +6992,22 @@ def frame(clock=None, auto=0):
                 play_snd(SND_MENU)
                 gSt = ST_MENU
         elif gSt == ST_GALLERY:
+            if gGalNameTyping:
+                if kc in (pygame.K_RETURN, pygame.K_ESCAPE):
+                    gGalNameTyping = False
+                elif kc == pygame.K_BACKSPACE:
+                    gGalRenameInput = gGalRenameInput[:-1]
+                else:
+                    ch = None
+                    if pygame.K_a <= kc <= pygame.K_z:
+                        ch = chr(kc)
+                    elif pygame.K_0 <= kc <= pygame.K_9:
+                        ch = chr(kc)
+                    elif kc in (pygame.K_SPACE, pygame.K_MINUS):
+                        ch = " " if kc == pygame.K_SPACE else "-"
+                    if ch and len(gGalRenameInput) < 24:
+                        gGalRenameInput += ch.upper() if ch.isalpha() and pygame.key.get_mods() & pygame.KMOD_SHIFT else ch
+                continue
             if kc in (pygame.K_UP, pygame.K_w) and gDesigns:
                 gal_select((gGalSel - 1) % len(gDesigns))
                 play_snd(SND_MENU)
