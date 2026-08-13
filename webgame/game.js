@@ -282,6 +282,9 @@ window._gGalPng = null;           // b64 of the PNG bytes
 window._gGalRGB = null;           // b64 RGBA pixels (filled by async PNG decode)
 window._gGalDim = null;           // "WxH" of the decoded image
 window._gUpState = 0;             // 0 idle 1 uploading 2 ok 3 error
+window._designOwnerId = localStorage.getItem("zamn_design_owner") ||
+    ("web-" + Math.random().toString(36).slice(2, 12));
+localStorage.setItem("zamn_design_owner", window._designOwnerId);
 
 window._refreshDesigns = async function () {
     window._gGalState = "loading";
@@ -291,6 +294,28 @@ window._refreshDesigns = async function () {
         window._gGalState = "done";
     } catch (e) {
         window._gGalState = "error";
+    }
+};
+window._refreshMyDesigns = async function () {
+    window._gGalState = "loading";
+    try {
+        const r = await fetch("/api/designs/mine/" + encodeURIComponent(window._designOwnerId), { cache: "no-store" });
+        window._gGalList = await r.json();
+        window._gGalState = "done";
+    } catch (e) {
+        window._gGalState = "error";
+    }
+};
+window._publishDesign = async function (id, owner) {
+    try {
+        const r = await fetch("/api/designs/publish", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: id, owner: owner }), cache: "no-store"
+        });
+        if (!r.ok) throw new Error("publish failed");
+        await window._refreshMyDesigns();
+    } catch (e) {
+        window._gUpState = 3;
     }
 };
 
@@ -335,7 +360,8 @@ window._uploadDesign = async function (name, pngB64) {
         const r = await fetch("/api/designs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: name, png: pngB64 })
+            body: JSON.stringify({ name: name, png: pngB64,
+                                   owner: window._designOwnerId, public: false })
         });
         const o = await r.json();
         window._gUpState = (o && o.ok) ? 2 : 3;
@@ -426,10 +452,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=78")).text();
+            const src = await (await fetch(f + "?v=79")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=78")).text();
+        const shim = await (await fetch("pygame.py?v=79")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

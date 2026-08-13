@@ -625,6 +625,7 @@ gGalFlashT = 0.0
 gGalUseReq = False
 gGalReturnState = ST_EDITOR
 gGalMode = "characters"
+gGalMine = False
 gUpState = 0              # design upload: 0 idle 1 uploading 2 ok 3 error
 
 
@@ -5044,12 +5045,9 @@ def editor_save():
     texDrawn = sheet
     gCustMine = tuple(gCust)
     gCustNameMine = gCustName
-    if ed_complete():
-        gal_start_upload(custom_display_name())
-    else:
-        # The design is still persisted locally even when not all frames are
-        # complete; it simply is not uploaded to the shared gallery yet.
-        gUpState = 3
+    # Every saved character is persisted privately on the server. Publication
+    # is a separate action from MIS DISENOS.
+    gal_start_upload(custom_display_name())
     save_lang()
     gEdFlashT = 2.2 if gUpState else 1.2
     play_snd(SND_CONFIRM)
@@ -5092,13 +5090,28 @@ def _gal_locales():
 def _gal_combine(remote):
     # Remote designs are user skins; keep their original proxy/object type so
     # the browser and native gallery paths behave identically.
+    if gGalMine:
+        return list(remote)
     return _gal_locales() + ([] if gGalMode == "neighbors" else list(remote))
+
+
+def design_owner_id():
+    if IS_WEB:
+        try:
+            from js import window
+            return str(window._designOwnerId)
+        except Exception:
+            return "browser"
+    return socket.gethostname()
 
 
 def _gal_worker_list():
     global gDesigns, gGalState
     try:
-        with urllib.request.urlopen(SITE + "/api/designs", timeout=5) as r:
+        url = SITE + "/api/designs"
+        if gGalMine:
+            url += "/mine/" + urllib.parse.quote(design_owner_id())
+        with urllib.request.urlopen(url, timeout=5) as r:
             data = json.loads(r.read().decode("utf-8"))
         if isinstance(data, dict):
             data = [data]
@@ -5126,7 +5139,8 @@ def _gal_worker_fetch(pid):
 def _gal_worker_upload(name, png_b64):
     global gUpState
     try:
-        body = json.dumps({"name": name, "png": png_b64}).encode("utf-8")
+        body = json.dumps({"name": name, "png": png_b64,
+                           "owner": design_owner_id(), "public": False}).encode("utf-8")
         req = urllib.request.Request(SITE + "/api/designs", data=body,
                                      headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=8)
@@ -5141,7 +5155,7 @@ def gal_fetch_list():
     if IS_WEB:
         try:
             from js import window
-            window._refreshDesigns()
+            (window._refreshMyDesigns() if gGalMine else window._refreshDesigns())
         except Exception:
             gGalState = "error"
     else:
@@ -5187,7 +5201,7 @@ def gal_start_upload(name):
 
 
 def gal_open(return_state=ST_EDITOR):
-    global gGalSel, gGalState, gGalDataState, gDesignData, gDesigns, gGalFlashT, gGalUseReq, gSt, gGalReturnState, gGalMode
+    global gGalSel, gGalState, gGalDataState, gDesignData, gDesigns, gGalFlashT, gGalUseReq, gSt, gGalReturnState, gGalMode, gGalMine
     gGalSel = 0
     gGalState = "idle"
     gGalDataState = "idle"
@@ -5196,9 +5210,36 @@ def gal_open(return_state=ST_EDITOR):
     gGalUseReq = False
     gGalReturnState = return_state
     gGalMode = "characters" if return_state == ST_CHARACTERS else ("neighbors" if gEdMode == "neighbor" else "characters")
+    gGalMine = False
     gDesigns = _gal_locales()
     gal_fetch_list()
     gSt = ST_GALLERY
+
+
+def gal_publish_selected():
+    global gGalFlashT
+    if not gGalMine or not (0 <= gGalSel < len(gDesigns)):
+        return
+    pid = gDesigns[gGalSel].get("id")
+    if not pid:
+        return
+    if IS_WEB:
+        try:
+            from js import window
+            window._publishDesign(pid, design_owner_id())
+            gGalFlashT = 1.2
+        except Exception:
+            pass
+    else:
+        try:
+            body = json.dumps({"id": pid, "owner": design_owner_id()}).encode("utf-8")
+            req = urllib.request.Request(SITE + "/api/designs/publish", data=body,
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=6).read()
+            gal_fetch_list()
+            gGalFlashT = 1.2
+        except Exception:
+            pass
 
 
 def gal_select(i):
@@ -5218,8 +5259,6 @@ def gal_select(i):
                     gDesignData = (g["id"], tex, None)
                     gGalDataState = "done"
                 return
-        if gLobIpTyping and 100 <= mx <= 380 and 214 <= my <= 234:
-            return
             if g.get("template"):
                 bi = int(g["id"][1:])
                 templates = [texTemplateZeke, texTemplateJulie, texTemplateRusty,
@@ -5338,7 +5377,7 @@ def gal_apply():
 
 
 def gal_click(mx, my):
-    global gGalSel, gSt, gGalReturnState
+    global gGalSel, gSt, gGalReturnState, gGalMine, gDesignData
     rows = min(len(gDesigns), 12)
     for i in range(rows):
         if 20 <= mx <= 310 and abs(my - (44 + i * 12 + 5)) <= 6:
@@ -5348,15 +5387,22 @@ def gal_click(mx, my):
                 gal_select(i)
             play_snd(SND_MENU)
             return
-    for b in range(3):
-        cx = (80, 240, 400)[b]
+    buttons = [(65, 0), (175, 1), (285, 2)]
+    if gGalReturnState == ST_CHARACTERS:
+        buttons.append((415, 3))
+    for cx, b in buttons:
         if abs(mx - cx) <= 50 and 196 <= my <= 212:
             if b == 0:
                 play_snd(SND_MENU)
                 gSt = ST_MENU if gGalReturnState == ST_CHARACTERS else gGalReturnState
             elif b == 1:
-                gal_use_now()
+                gal_publish_selected() if gGalMine else gal_use_now()
+            elif b == 2:
+                gal_fetch_list()
             else:
+                gGalMine = not gGalMine
+                gGalSel = 0
+                gDesignData = None
                 gal_fetch_list()
             return
 
@@ -5534,7 +5580,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v78")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v79")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
