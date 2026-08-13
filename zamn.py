@@ -4054,11 +4054,24 @@ def render_lobby():
         draw_text_c(vbuf, 219, 114, 1, (255, 230, 120), ">")
         draw_text(vbuf, 22, 145, 1, (230, 210, 255), tr("create_teams"))
         draw_text(vbuf, 22, 158, 1, (150, 140, 160), tr("create_bots"))
-        # Map artwork is intentionally not shown on the creation screen.
+        # Six direct stage buttons and a preview of the selected SNES map.
         sc_panel(vbuf, (252, 34, 216, 142), (16, 9, 24), g, 6)
-        draw_text_c(vbuf, 360, 88, 1, WORLD_TINT[gLevelSel % WORLD_COUNT],
-                    "MAPA %d/6" % (gLevelSel + 1))
-        draw_text_c(vbuf, 360, 104, 1, (180, 170, 195), WORLD_NAMES[gLevelSel % WORLD_COUNT])
+        for i in range(WORLD_COUNT):
+            col, row = i % 2, i // 2
+            rx, ry = 260 + col * 104, 42 + row * 23
+            selected = i == gLevelSel
+            vbuf.fill((40, 25, 55) if selected else (14, 8, 26), (rx, ry, 96, 18))
+            pygame.draw.rect(vbuf, WORLD_TINT[i] if selected else (100, 75, 110),
+                             (rx, ry, 96, 18), 1)
+            draw_text(vbuf, rx + 5, ry + 4, 1,
+                      (255, 230, 120) if selected else (205, 198, 220),
+                      "%d. %s" % (i + 1, WORLD_NAMES[i][:12]))
+        ptex = world_texture()[0]
+        pw, ph = ptex.get_size()
+        psc = min(196.0 / pw, 48.0 / ph)
+        tw, th = max(1, int(pw * psc)), max(1, int(ph * psc))
+        vbuf.blit(pygame.transform.scale(ptex, (tw, th)),
+                  (262 + (196 - tw) // 2, 119 + (48 - th) // 2))
         # editor-style buttons
         for cx, label in ((62, tr("ed_back")), (160, tr("create_title"))):
             vbuf.fill((14, 8, 26), (cx - 42, 202, 84, 18))
@@ -5682,7 +5695,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v86")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v87")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
