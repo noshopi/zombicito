@@ -3893,7 +3893,7 @@ def sc_title(cx, y, text, color, sc=3, glow=True):
             vbuf.fill((120, 90, 40), (bx, y + sc * 8 + 4, 8, 1))
 
 
-def sc_row(cx, y, w, label, idx, sel, stagger=0.16, sc=2, scolor=(255, 230, 120), color=(205, 198, 220)):
+def sc_row(cx, y, w, label, idx, sel, stagger=0.16, sc=2, scolor=(255, 230, 120), color=(205, 198, 220), side=True):
     k = min(1.0, max(0.0, gMenuT * 2.4 - idx * stagger))
     ease = 1.0 - (1.0 - k) ** 3
     off = int((1.0 - ease) * 52.0)
@@ -3904,9 +3904,10 @@ def sc_row(cx, y, w, label, idx, sel, stagger=0.16, sc=2, scolor=(255, 230, 120)
         uw = max(8, int(w * ease))
         vbuf.fill((200, 160, 66), (cx - uw // 2, y + sc * 7 + 1, uw, 2))
         vbuf.fill((255, 240, 170), (cx - uw // 2, y + sc * 7 + 1, uw // 2, 1))
-        a = int(gMenuT * 8) % 3
-        draw_text_c(vbuf, cx - w // 2 - 14 - a, y + 1, 1, (200, 160, 66), ">")
-        draw_text_c(vbuf, cx + w // 2 + 14 - a, y + 1, 1, (200, 160, 66), "<")
+        if side:
+            a = int(gMenuT * 8) % 3
+            draw_text_c(vbuf, cx - w // 2 - 14 - a, y + 1, 1, (200, 160, 66), ">")
+            draw_text_c(vbuf, cx + w // 2 + 14 - a, y + 1, 1, (200, 160, 66), "<")
 
 
 def marquee(cx, y, txt, color, sc=1, speed=46.0):
@@ -4226,11 +4227,11 @@ def render_options():
             tr("opts_back")]
     h = hover_row(68, 26, 5, 130, 350)
     for i in range(5):
-        sc_row(VIEW_W // 2, 68 + i * 26, 240, rows[i], i, i == gOptIdx or i == h, 0.12, 2)
+        sc_row(VIEW_W // 2, 68 + i * 26, 240, rows[i], i, i == gOptIdx or i == h, 0.12, 2, side=False)
         if i == 1:
             # Volume controls stay inside the options panel.
-            pygame.draw.polygon(vbuf, (200, 160, 66), [(176, 94), (184, 87), (184, 101)])
-            pygame.draw.polygon(vbuf, (200, 160, 66), [(384, 94), (376, 87), (376, 101)])
+            pygame.draw.polygon(vbuf, (200, 160, 66), [(94, 94), (106, 86), (106, 102)])
+            pygame.draw.polygon(vbuf, (200, 160, 66), [(386, 94), (374, 86), (374, 102)])
             # volume bars
             for seg in range(8):
                 on = gVolume >= (seg + 1) * 12
@@ -4318,11 +4319,11 @@ def options_click(mx, my):
         gSt = ST_MENU
         play_snd(SND_MENU)
         return
-    if 176 <= mx <= 204 and 78 <= my <= 110:
+    if 88 <= mx <= 116 and 78 <= my <= 110:
         gVolume = max(0, gVolume - 1)
         play_snd(SND_CONFIRM)
         return
-    if 356 <= mx <= 384 and 78 <= my <= 110:
+    if 364 <= mx <= 392 and 78 <= my <= 110:
         gVolume = min(10, gVolume + 1)
         play_snd(SND_CONFIRM)
         return
@@ -5695,7 +5696,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v87")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v88")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
