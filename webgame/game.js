@@ -247,6 +247,18 @@ window._recolorCustomCanvas = function (bmp, params, zeke_rects, julie_rects, ze
 // ---- lobby directory relay polling ----
 window._lobbies = [];
 window._apiPing = 0;
+window._announceLobby = async function (lobby) {
+    try {
+        await fetch("/api/announce", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(lobby),
+            cache: "no-store"
+        });
+    } catch (e) {
+        // The lobby can still run locally if the directory is unavailable.
+    }
+};
 async function pollLobbies() {
     try {
         const t0 = performance.now();
@@ -408,10 +420,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=66")).text();
+            const src = await (await fetch(f + "?v=67")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=66")).text();
+        const shim = await (await fetch("pygame.py?v=67")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

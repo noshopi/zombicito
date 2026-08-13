@@ -1100,8 +1100,7 @@ TR = {
     "lobby_none": ["NINGUNO - CREE UNO O UNASE POR IP", "NONE - CREATE ONE OR JOIN BY IP"],
     "lobby_playing": ["JUGANDO", "IN GAME"],
     "lobby_waiting": ["ESPERANDO", "WAITING"],
-    "lobby_hint_list": ["ARRIBA/ABAJO SELECCIONAR   ENTER ENTRAR   ESC VOLVER",
-                        "UP/DOWN SELECT   ENTER JOIN   ESC BACK"],
+    "lobby_hint_list": ["", ""],
     "create_title": ["CREAR LOBBY", "CREATE LOBBY"],
     "create_name": ["NOMBRE DEL LOBBY:", "LOBBY NAME:"],
     "create_teams": ["4 EQUIPOS DE 3 - 12 JUGADORES", "4 TEAMS OF 3 - 12 PLAYERS"],
@@ -1112,11 +1111,10 @@ TR = {
     "bot_ready": ["BOT LISTO", "BOT READY"],
     "ready": ["LISTO", "READY"],
     "not_ready": ["NO LISTO", "NOT READY"],
-    "lobby_hint_host": ["ENTER SENTARSE   R READY   C PERSONAJE   M MAPA   T CHAT",
-                        "ENTER SIT   R READY   C CHARACTER   M MAP   T CHAT"],
+    "lobby_hint_host": ["", ""],
     "chat_title": ["CHAT", "CHAT"],
-    "chat_hint": ["[T] ESCRIBIR", "[T] TYPE"],
-    "chat_welcome": ["BIENVENIDO AL LOBBY - ESCRIBE CON T", "WELCOME TO THE LOBBY - PRESS T TO CHAT"],
+    "chat_hint": ["HAGA CLIC PARA ESCRIBIR", "CLICK TO TYPE"],
+    "chat_welcome": ["BIENVENIDO AL LOBBY", "WELCOME TO THE LOBBY"],
     "chat_you": ["TU", "YOU"],
     "chat_sys": ["SISTEMA", "SYSTEM"],
     "lobby_ready_n": ["%d/12 LISTOS", "%d/12 READY"],
@@ -3916,7 +3914,6 @@ def render_lobby():
             vbuf.fill((14, 8, 26), (cx - 42, 238, 84, 18))
             pygame.draw.rect(vbuf, (200, 160, 66), (cx - 42, 238, 84, 18), 1)
             draw_text_c(vbuf, cx, 240, 1, (255, 230, 120), label)
-        draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 8, 1, (150, 140, 160), tr("lobby_hint_list"))
     elif gLobStage == 4:
         # Compact left controls and a larger right-side map preview.
         draw_text(vbuf, 22, 22, 1, WORLD_TINT[gLevelSel % WORLD_COUNT], tr("create_title"))
@@ -3978,42 +3975,43 @@ def render_lobby():
                 if sel:
                     vbuf.fill((30, 18, 44), (bx + 2, sy - 5, bw - 4, 32))
                     pygame.draw.rect(vbuf, g, (bx + 2, sy - 5, bw - 4, 32), 1)
+                bot_active = gKinds[slot] == 0 and bool(gBotEnabled[slot])
                 charl = gLobChar[slot] % 9
-                if charl == 8:
-                    cp = gCustNet[slot] if gCustNet[slot] else tuple(gCust)
-                    stex = custom_tex_any(cp) if slot == gMySlot else custom_tex(cp)
-                    z_like = cp[0] in (0, 2, 4, 6)
-                    if stex is None:
-                        stex = (texChars[cp[0]] if 0 <= cp[0] < len(texChars)
-                                and texChars[cp[0]] else (texZeke if z_like else texJulie))
-                    if stex is texDrawn:
-                        # The player's own design: use the real first cell of
-                        # the saved sheet, whatever its width.
-                        sfr = custom_fr0(stex)
-                    elif texZeke2 is not None:
-                        sfr = (ZEKE2_DOWN if z_like else JULIE2_DOWN)[0]
-                    else:
-                        sfr = (ZEKE_DOWN if z_like else JULIE_DOWN)[0]
-                    sdx = bx + 4
-                else:
-                    is_z = charl in (0, 2, 4, 6, 7)
-                    if texZeke2 is not None:
-                        sfr = (ZEKE2_DOWN if is_z else JULIE2_DOWN)[0]
-                        base_w = (ZEKE_DOWN if is_z else JULIE_DOWN)[0][2]
-                        sdx = bx + 4 - (sfr[2] - base_w) // 2
-                    else:
-                        sfr = (ZEKE_DOWN if is_z else JULIE_DOWN)[0]
+                if gKinds[slot] != 0 or bot_active:
+                    if charl == 8:
+                        cp = gCustNet[slot] if gCustNet[slot] else tuple(gCust)
+                        stex = custom_tex_any(cp) if slot == gMySlot else custom_tex(cp)
+                        z_like = cp[0] in (0, 2, 4, 6)
+                        if stex is None:
+                            stex = (texChars[cp[0]] if 0 <= cp[0] < len(texChars)
+                                    and texChars[cp[0]] else (texZeke if z_like else texJulie))
+                        if stex is texDrawn:
+                            sfr = custom_fr0(stex)
+                        elif texZeke2 is not None:
+                            sfr = (ZEKE2_DOWN if z_like else JULIE2_DOWN)[0]
+                        else:
+                            sfr = (ZEKE_DOWN if z_like else JULIE_DOWN)[0]
                         sdx = bx + 4
-                    stex = texChars[charl]
-                vbuf.blit(stex, (sdx, sy - 4), pygame.Rect(sfr[0], sfr[1], sfr[2], sfr[3]))
+                    else:
+                        is_z = charl in (0, 2, 4, 6, 7)
+                        if texZeke2 is not None:
+                            sfr = (ZEKE2_DOWN if is_z else JULIE2_DOWN)[0]
+                            base_w = (ZEKE_DOWN if is_z else JULIE_DOWN)[0][2]
+                            sdx = bx + 4 - (sfr[2] - base_w) // 2
+                        else:
+                            sfr = (ZEKE_DOWN if is_z else JULIE_DOWN)[0]
+                            sdx = bx + 4
+                        stex = texChars[charl]
+                    vbuf.blit(stex, (sdx, sy - 4), pygame.Rect(sfr[0], sfr[1], sfr[2], sfr[3]))
                 draw_text(vbuf, bx + 26, sy + 1, 1, rowc, who)
                 cc = (255, 255, 255) if mine else (150, 145, 170)
-                draw_text(vbuf, bx + 26, sy + 10, 1, cc, char_name(charl, slot))
+                if gKinds[slot] != 0 or bot_active:
+                    draw_text(vbuf, bx + 26, sy + 10, 1, cc, char_name(charl, slot))
                 rdy = gLobReady[slot] if slot < MAX_PLAYERS else 1
-                if gKinds[slot] == 0:
-                    bot_label = "BOT ON" if gBotEnabled[slot] else "BOT OFF"
-                    bot_color = (110, 235, 110) if gBotEnabled[slot] else (150, 140, 160)
-                    draw_text(vbuf, bx + 26, sy + 19, 1, bot_color, bot_label)
+                if gKinds[slot] == 0 and not bot_active:
+                    draw_text(vbuf, bx + 26, sy + 19, 1, (130, 125, 150), "LIBRE")
+                elif gKinds[slot] == 0:
+                    draw_text(vbuf, bx + 26, sy + 19, 1, (110, 235, 110), "BOT ON")
                 elif rdy:
                     draw_text(vbuf, bx + 26, sy + 19, 1, (110, 235, 70), tr("ready"))
                 else:
@@ -4055,7 +4053,7 @@ def render_lobby():
         ready_n = sum(1 for i in range(MAX_PLAYERS) if gLobReady[i])
         if gLobStage == 1:
             draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 38, 1, (255, 255, 120),
-                        tr("lobby_ready_n") % ready_n + "  -  " + tr("lobby_hint_host"))
+                        tr("lobby_ready_n") % ready_n)
             try:
                 ip = socket.gethostbyname(socket.gethostname())
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (230, 210, 255),
@@ -4064,10 +4062,9 @@ def render_lobby():
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (230, 210, 255),
                             tr("lobby_pc") % socket.gethostname())
         else:
-            draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 38, 1, (230, 210, 255), tr("lobby_hint_host"))
             if gLobbyGot:
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (255, 255, 120),
-                            tr("lobby_ready_n") % ready_n + " - " + tr("lobby_auto"))
+                            tr("lobby_ready_n") % ready_n)
             else:
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (255, 255, 120), tr("lobby_connect"))
         # Back and creator-only launch controls.
@@ -5430,7 +5427,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v66")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v67")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6302,56 +6299,6 @@ def frame(clock=None, auto=0):
                             gChatInput = gChatInput[:-1]
                             play_snd(SND_MENU)
                     continue
-                if kc == pygame.K_t:
-                    gChatTyping = 1
-                    gChatInput = ""
-                    play_snd(SND_MENU)
-                if kc in (pygame.K_m, 91, 93) and gLobStage == 1 and gHosting:
-                    # host selects the world: mirror instantly to every client
-                    if kc == pygame.K_m or kc == 93:
-                        gLevelSel = (gLevelSel + 1) % WORLD_COUNT
-                    else:
-                        gLevelSel = (gLevelSel + WORLD_COUNT - 1) % WORLD_COUNT
-                    play_snd(SND_CONFIRM)
-                    host_broadcast_lobby()
-                if kc == pygame.K_ESCAPE:
-                    net_close()
-                    gLocalHost = 0
-                    gLobStage = 0
-                    gSt = ST_MENU
-            elif gLobStage == 3:
-                if gLobCount > 0 and kc in (pygame.K_UP, pygame.K_w):
-                    gLobSel = (gLobSel + gLobCount - 1) % gLobCount
-                    play_snd(SND_MENU)
-                if gLobCount > 0 and kc in (pygame.K_DOWN, pygame.K_s):
-                    gLobSel = (gLobSel + 1) % gLobCount
-                    play_snd(SND_MENU)
-                if kc in (pygame.K_RETURN, pygame.K_z) and gLobCount > 0:
-                    if IS_WEB:
-                        # no UDP in the browser: enter a local lobby with bots
-                        host_open_local()
-                        gLobStage = 1
-                        gLobSelRow = 0
-                        play_snd(SND_CONFIRM)
-                        msg("MODO LOCAL - SIN RED EN EL NAVEGADOR")
-                    else:
-                        order = sorted(range(gLobCount), key=lambda i: (gLobList[i].started, -gLobList[i].filled))
-                        e = gLobList[order[min(gLobSel, len(order) - 1)]]
-                        if e.started:
-                            play_snd(SND_MENU)
-                        elif net_client_open(e.addr):
-                            gLobStage = 2
-                            gLobSelRow = 0
-                            gLobbyGot = 0
-                            gJoinReqT = 0.0
-                            gJoinStartT = gNetTime
-                            play_snd(SND_CONFIRM)
-                        else:
-                            msg("NO SE PUDO CONECTAR")
-                if kc == pygame.K_ESCAPE:
-                    net_close()
-                    gLobStage = 0
-                    gSt = ST_MENU
         elif gSt == ST_OPTIONS:
             if kc in (pygame.K_UP, pygame.K_w):
                 gOptIdx = (gOptIdx + 5) % 6
@@ -6589,11 +6536,10 @@ def frame(clock=None, auto=0):
             if gBeaconT <= 0:
                 gBeaconT = 0.5
                 host_send_beacon()
-            if not IS_WEB:
-                gAnnounceT -= dt
-                if gAnnounceT <= 0:
-                    gAnnounceT = 3.0
-                    host_announce()
+            gAnnounceT -= dt
+            if gAnnounceT <= 0:
+                gAnnounceT = 3.0
+                web_host_announce() if IS_WEB else host_announce()
 
     # Ready is only a status. The lobby creator launches explicitly.
 
