@@ -169,7 +169,7 @@ ZOM2_UP = _row8(33, 48, 96)
 
 # ---------------- packets (python-only protocol) ----------------
 PACK_JOIN = struct.Struct("<B")
-PACK_LOBBY = struct.Struct("<4B" + "12B" + "12B" + "12B" + "12B")
+PACK_LOBBY = struct.Struct("<4B" + "12B" + "12B" + "12B" + "12B" + "12B")
 PACK_INPUT = struct.Struct("<4B")
 PACK_SNAP = struct.Struct("<BBBBBBBB" + "4h" + "4l" + "2h8B" * 12 + "2h4B" * 32 + "2hB" * 64 + "2B" * 16 + "3h2B" * 16 + "2B" * 8 + "40s" + "B")
 PACK_BEACON = struct.Struct("<5B16s16sB")
@@ -503,6 +503,7 @@ gPingSeq = 1
 gPingT = 0.0
 gAnnounceT = 0.0
 gDirectoryT = 0.0
+gWebHostId = 0
 gConsoleOpen = False
 gConsoleInput = ""
 gWpnMenuSel = 0
@@ -1871,6 +1872,9 @@ def net_client_open(host):
 
 def next_free_human_slot():
     for i in range(MAX_PLAYERS):
+        if gKinds[i] == 0 and not gBotEnabled[i]:
+            return i
+    for i in range(MAX_PLAYERS):
         if gKinds[i] == 0:
             return i
     return -1
@@ -1925,7 +1929,7 @@ def host_send_beacon():
 def host_send_lobby(to, slot):
     try:
         gSock.sendto(PACK_LOBBY.pack(2, gLevelSel, gNetStarted, slot,
-                                     *gKinds, *gLobTeam, *gLobChar, *gLobReady), to)
+                                     *gKinds, *gLobTeam, *gLobChar, *gLobReady, *gBotEnabled), to)
     except OSError:
         pass
 
@@ -2006,6 +2010,8 @@ def host_poll():
                 if slot >= 0:
                     client_no = 2 + sum(1 for k in gKinds if k >= 2)
                     gKinds[slot] = client_no
+                    gBotEnabled[slot] = 0
+                    gLobReady[slot] = 0
                     gClientAddr[slot] = from_addr
                     gClientKnown[slot] = 1
                     if gNumPlayers > slot:
@@ -2017,6 +2023,7 @@ def host_poll():
                 if slot >= 0:
                     client_no = 2 + sum(1 for k in gKinds if k >= 2)
                     gKinds[slot] = client_no
+                    gBotEnabled[slot] = 0
                     gClientAddr[slot] = from_addr
                     gClientKnown[slot] = 1
                     gLobReady[slot] = 0
@@ -2080,6 +2087,7 @@ def host_poll():
                     gClientKnown[who] = 0
                     gLobReady[slot] = 0
                     gLobReady[who] = 1
+                gBotEnabled[slot] = 0
                 gLobTeam[slot] = slot // 3
                 gLobChar[slot] = slot % 7
                 if who == 0 and gServerMode:
@@ -2241,6 +2249,7 @@ def client_poll():
                 gLobTeam[i] = v[16 + i]
                 gLobChar[i] = v[28 + i]
                 gLobReady[i] = v[40 + i]
+                gBotEnabled[i] = v[52 + i]
             gLobbyGot = 1
             if v[2]:
                 gNetStarted = 1
@@ -3641,6 +3650,8 @@ def _lobby_sit_local(slot):
         return
     if gKinds[slot] == 0:
         gKinds[slot] = gKinds[old]
+        gBotEnabled[slot] = 0
+        gBotEnabled[old] = 0
         gKinds[old] = 0
         gLobReady[slot] = 0
         gLobReady[old] = 1
@@ -4103,9 +4114,10 @@ def render_lobby():
                             tr("lobby_ready_n") % ready_n)
             else:
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (255, 255, 120), tr("lobby_connect"))
-        # Back and creator-only launch controls.
+        # Back, remove-all-bots and creator-only launch controls.
         buttons = [(52, tr("ed_back"))]
         if gLobStage == 1 and gMySlot == 0:
+            buttons.append((236, "SIN BOTS"))
             buttons.append((420, "LANZAR"))
         for cx, label in buttons:
             fill = (30, 18, 44)
@@ -4386,12 +4398,21 @@ def lobby_click(mx, my):
         return
     if gLobStage in (1, 2):
         # Only the creator can launch; READY lives in the player's card.
-        for b, cx in ((0, 52), (1, 420)):
+        for b, cx in ((0, 52), (1, 236), (2, 420)):
             if abs(mx - cx) <= 42 and 254 <= my <= 268:
                 if b == 0:
                     play_snd(SND_MENU)
                     gSt = ST_MENU
                 elif b == 1 and gLobStage == 1 and gMySlot == 0:
+                    for si in range(MAX_PLAYERS):
+                        if si != gMySlot:
+                            gBotEnabled[si] = 0
+                            if gKinds[si] == 0:
+                                gLobReady[si] = 0
+                    if gSock is not None and not IS_WEB:
+                        host_broadcast_lobby()
+                    play_snd(SND_MENU)
+                elif b == 2 and gLobStage == 1 and gMySlot == 0:
                     lobby_start_match()
                     play_snd(SND_CONFIRM)
                 return
@@ -5464,7 +5485,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v69")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v70")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5615,11 +5636,15 @@ def directory_poll():
 
 def web_host_announce():
     """Publish a browser lobby through the same-origin directory relay."""
+    global gWebHostId
     try:
         from js import window
+        if gWebHostId == 0:
+            import random
+            gWebHostId = random.randrange(10000, 99999)
         window._announceLobby({
             "name": (gLobName.strip() or "LOBBY")[:15],
-            "host": "browser",
+            "host": "web-%d" % gWebHostId,
             "region": 1,
             "filled": sum(1 for k in gKinds if k),
             "slots": MAX_PLAYERS,
