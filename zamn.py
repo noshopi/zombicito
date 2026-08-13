@@ -4130,19 +4130,18 @@ def render_options():
     pygame.draw.rect(vbuf, (200, 160, 66), (8, 8, 80, 18), 1)
     draw_text_c(vbuf, 48, 10, 1, (255, 230, 120), tr("opts_back"))
     sc_panel(vbuf, (VIEW_W // 2 - 160, 60, 320, 178), (14, 8, 26), _gold, 10)
-    rows = [tr("opts_full") % ("ON" if gFullscreen else "OFF"),
-            tr("opts_filter") % ("SMOOTH" if gSmooth else "CRISP"),
+    rows = [tr("opts_filter") % ("SMOOTH" if gSmooth else "CRISP"),
             tr("opts_vol") % gVolume,
             tr("opts_lang") % ("ES" if gLang == 0 else "EN"),
             tr("opts_fps") % ("ON" if gShowFps else "OFF"),
             tr("opts_back")]
-    h = hover_row(68, 26, 6, 130, 350)
-    for i in range(6):
+    h = hover_row(68, 26, 5, 130, 350)
+    for i in range(5):
         sc_row(VIEW_W // 2, 68 + i * 26, 240, rows[i], i, i == gOptIdx or i == h, 0.12, 2)
-        if i == 2:
-            # Side arrows belong exclusively to the selected volume control.
-            pygame.draw.polygon(vbuf, (200, 160, 66), [(24, 124), (44, 108), (44, 140)])
-            pygame.draw.polygon(vbuf, (200, 160, 66), [(456, 124), (436, 108), (436, 140)])
+        if i == 1:
+            # Volume controls stay inside the options panel.
+            pygame.draw.polygon(vbuf, (200, 160, 66), [(176, 94), (184, 87), (184, 101)])
+            pygame.draw.polygon(vbuf, (200, 160, 66), [(384, 94), (376, 87), (376, 101)])
             # volume bars
             for seg in range(8):
                 on = gVolume >= (seg + 1) * 12
@@ -4204,24 +4203,21 @@ def menu_enter():
 def option_enter():
     global gFullscreen, gSmooth, gVolume, gLang, gShowFps, gSt
     g3D = 0
-    if gOptIdx == 5:
+    if gOptIdx == 4:
         gSt = ST_MENU
         play_snd(SND_MENU)
         return
     play_snd(SND_MENU)
     if gOptIdx == 0:
-        gFullscreen = not gFullscreen
-        pygame.display.toggle_fullscreen()
-    elif gOptIdx == 1:
         gSmooth = not gSmooth
-    elif gOptIdx == 2:
+    elif gOptIdx == 1:
         gVolume = max(0, min(10, gVolume + 1))
         play_snd(SND_CONFIRM)
-    elif gOptIdx == 3:
+    elif gOptIdx == 2:
         gLang ^= 1
         save_lang()
         play_snd(SND_CONFIRM)
-    elif gOptIdx == 4:
+    elif gOptIdx == 3:
         gShowFps = not gShowFps
         save_lang()
         play_snd(SND_CONFIRM)
@@ -4233,11 +4229,11 @@ def options_click(mx, my):
         gSt = ST_MENU
         play_snd(SND_MENU)
         return
-    if 18 <= mx <= 50 and 104 <= my <= 144:
+    if 176 <= mx <= 204 and 78 <= my <= 110:
         gVolume = max(0, gVolume - 1)
         play_snd(SND_CONFIRM)
         return
-    if 430 <= mx <= 462 and 104 <= my <= 144:
+    if 356 <= mx <= 384 and 78 <= my <= 110:
         gVolume = min(10, gVolume + 1)
         play_snd(SND_CONFIRM)
         return
@@ -4303,14 +4299,17 @@ def render_console_overlay():
 
 def lobby_click(mx, my):
     global gLobSel, gLobStage, gLobSelRow, gLobCount, gSt, gLocalSlot, gLobbyGot, gJoinReqT, gJoinStartT
-    global gChatTyping, gChatInput, gLevelSel, gBotEnabled
+    global gChatTyping, gChatInput, gLevelSel, gBotEnabled, gLobIpTyping, gLobIp
     if gLobStage == 3:
-        for b, cx in ((0, 60), (1, 240), (2, 420)):
+        for b, cx in ((0, 42), (1, 142), (2, 282), (3, 430)):
             if abs(mx - cx) <= 42 and 238 <= my <= 256:
                 if b == 0:
                     play_snd(SND_MENU)
                     gSt = ST_MENU
                 elif b == 1:
+                    gLobIpTyping = True
+                    play_snd(SND_MENU)
+                elif b == 2:
                     gLobCount = 0
                     if IS_WEB:
                         try:
@@ -4322,6 +4321,9 @@ def lobby_click(mx, my):
                         net_browse_open()
                     play_snd(SND_MENU)
                 else:
+                    if gLobIpTyping and gLobIp.strip():
+                        lobby_connect_ip()
+                        return
                     if IS_WEB:
                         host_open_local()
                         gLobStage = 1
@@ -4465,6 +4467,27 @@ def lobby_click(mx, my):
                         _lobby_sit_net(gLobSelRow)
                         play_snd(SND_CONFIRM)
                     return
+
+
+def lobby_connect_ip():
+    global gLobIpTyping, gLobStage, gLobSelRow, gLobbyGot, gJoinReqT, gJoinStartT
+    gLobIpTyping = False
+    if IS_WEB:
+        msg("LA CONEXION IP REQUIERE LA VERSION NATIVA")
+        return
+    host = gLobIp.strip()
+    if not host:
+        msg("ESCRIBE UNA IP")
+        return
+    if net_client_open(host):
+        gLobStage = 2
+        gLobSelRow = 0
+        gLobbyGot = 0
+        gJoinReqT = 0.0
+        gJoinStartT = gNetTime
+        play_snd(SND_CONFIRM)
+    else:
+        msg("NO SE PUDO CONECTAR")
 
 
 def creator_click(mx, my):
@@ -5000,6 +5023,8 @@ def editor_save():
         gEdFlashT = 1.2
         play_snd(SND_CONFIRM)
         return
+
+
     if IS_WEB:
         from js import window
         try:
@@ -5191,6 +5216,8 @@ def gal_select(i):
                     gDesignData = (g["id"], tex, None)
                     gGalDataState = "done"
                 return
+        if gLobIpTyping and 100 <= mx <= 380 and 214 <= my <= 234:
+            return
             if g.get("template"):
                 bi = int(g["id"][1:])
                 templates = [texTemplateZeke, texTemplateJulie, texTemplateRusty,
@@ -5505,7 +5532,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v75")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v76")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6096,7 +6123,7 @@ def web_boot():
 
 def frame(clock=None, auto=0):
     global gFrameNo, gRunning, gSnapT, gInputSeq, gMenuT, gZomWalkT, gNetTime
-    global gSt, gMenuIdx, gLobStage, gLobRow, gLobIp, gTeamCount, gLobSelRow
+    global gSt, gMenuIdx, gLobStage, gLobRow, gLobIp, gLobIpTyping, gTeamCount, gLobSelRow
     global gLobTeam, gLobChar, gNetStarted, gMySlot, gLocalSlot, gLobbyGot, gJoinReqT
     global gJoinStartT, gLobSel, gLobCount, gOptIdx, gFullscreen, gSmooth, gVolume
     global pauseIdx, gServerStartT, gServerRestartT, gLobbyBcastT, gBeaconT, gSndSeq, gNetPhase
@@ -6260,7 +6287,7 @@ def frame(clock=None, auto=0):
             mx, my = mouse_vbuf()
             if gSt == ST_EDITOR and _ed_rect_contains(_ed_pad_rect(), mx, my):
                 editor_brush_wheel(ev.y)
-            elif gSt == ST_OPTIONS and 130 <= mx <= 350 and abs(my - 120) <= 9:
+            elif gSt == ST_OPTIONS and 130 <= mx <= 350 and abs(my - 94) <= 9:
                 gVolume = max(0, min(10, gVolume + (1 if ev.y > 0 else -1)))
                 play_snd(SND_CONFIRM)
             else:
@@ -6433,33 +6460,41 @@ def frame(clock=None, auto=0):
                             gChatInput = gChatInput[:-1]
                             play_snd(SND_MENU)
                     continue
+            elif gLobStage == 3 and gLobIpTyping:
+                if kc == pygame.K_BACKSPACE:
+                    gLobIp = gLobIp[:-1]
+                elif kc == pygame.K_RETURN:
+                    lobby_connect_ip()
+                elif kc == pygame.K_ESCAPE:
+                    gLobIpTyping = False
+                elif (pygame.K_0 <= kc <= pygame.K_9 or
+                      pygame.K_a <= kc <= pygame.K_z or kc in (pygame.K_PERIOD, pygame.K_MINUS)):
+                    if len(gLobIp) < 48:
+                        gLobIp += chr(kc)
         elif gSt == ST_OPTIONS:
             if kc in (pygame.K_UP, pygame.K_w):
-                gOptIdx = (gOptIdx + 5) % 6
+                gOptIdx = (gOptIdx + 4) % 5
                 play_snd(SND_MENU)
             if kc in (pygame.K_DOWN, pygame.K_s):
-                gOptIdx = (gOptIdx + 1) % 6
+                gOptIdx = (gOptIdx + 1) % 5
                 play_snd(SND_MENU)
             if kc in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_a, pygame.K_d, pygame.K_RETURN):
                 dirn = -1 if kc in (pygame.K_LEFT, pygame.K_a) else 1
                 play_snd(SND_MENU)
                 if gOptIdx == 0:
-                    gFullscreen = not gFullscreen
-                    pygame.display.toggle_fullscreen()
-                elif gOptIdx == 1:
                     gSmooth = not gSmooth
-                elif gOptIdx == 2:
+                elif gOptIdx == 1:
                     gVolume = max(0, min(10, gVolume + dirn))
                     play_snd(SND_CONFIRM)
-                elif gOptIdx == 3:
+                elif gOptIdx == 2:
                     gLang ^= 1
                     save_lang()
                     play_snd(SND_CONFIRM)
-                elif gOptIdx == 4:
+                elif gOptIdx == 3:
                     gShowFps = not gShowFps
                     save_lang()
                     play_snd(SND_CONFIRM)
-                elif gOptIdx == 5 and kc == pygame.K_RETURN:
+                elif gOptIdx == 4 and kc == pygame.K_RETURN:
                     gSt = ST_MENU
             if kc == pygame.K_ESCAPE:
                 gSt = ST_MENU
