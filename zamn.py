@@ -3825,6 +3825,20 @@ def menu_cursor(cx, y, label, sc=2):
 
 def render_menu():
     render_bg_sc()
+    # Haunted house silhouette anchors the menu background without adding
+    # another animated foreground layer.
+    hx, hy = 18, 112
+    pygame.draw.polygon(vbuf, (12, 8, 24), [(hx - 4, hy + 28), (hx + 30, hy - 4),
+                                            (hx + 64, hy + 28), (hx + 58, hy + 28),
+                                            (hx + 58, hy + 108), (hx, hy + 108), (hx, hy + 28)])
+    vbuf.fill((20, 12, 34), (hx + 8, hy + 30, 42, 76))
+    pygame.draw.rect(vbuf, (90, 62, 116), (hx + 8, hy + 30, 42, 76), 1)
+    vbuf.fill((7, 5, 14), (hx + 24, hy + 72, 12, 34))
+    for wx in (hx + 13, hx + 36):
+        vbuf.fill((214, 180, 90), (wx, hy + 48, 9, 12))
+        pygame.draw.line(vbuf, (20, 14, 30), (wx + 4, hy + 48), (wx + 4, hy + 60), 1)
+    pygame.draw.line(vbuf, (90, 62, 116), (hx + 30, hy - 4), (hx + 30, hy - 18), 2)
+    pygame.draw.circle(vbuf, (90, 62, 116), (hx + 30, hy - 20), 3, 1)
     # StarCraft-style title (world tint)
     sc_title(VIEW_W // 2, 16, "ZOMBI-CITO", WORLD_TINT[gLevelSel % WORLD_COUNT], 3)
     sc_title(VIEW_W // 2, 44, tr("title_sub"), (235, 70, 85), 1)
@@ -3856,21 +3870,6 @@ def render_menu():
                                      (pfr[2] * ps, pfr[3] * ps)),
               (VIEW_W - 47 - pfr[2] * ps // 2, 102))
     draw_text_c(vbuf, VIEW_W - 47, 102 + pfr[3] * ps + 6, 1, (255, 230, 120), custom_display_name())
-    # SC bottom console bar with scrolling marquee
-    vbuf.fill((10, 8, 22), (0, VIEW_H - 30, VIEW_W, 30))
-    pygame.draw.line(vbuf, _gold, (0, VIEW_H - 30), (VIEW_W, VIEW_H - 30))
-    pygame.draw.line(vbuf, (80, 60, 30), (0, VIEW_H - 29), (VIEW_W, VIEW_H - 29))
-    msg_txt = "  ZOMBICITO  -  RESCUE THE NEIGHBORS  -  2-12 PLAYERS  -  LAN + ONLINE  -  "
-    marquee(0, VIEW_H - 22, msg_txt, (255, 230, 120), 1, 40.0)
-    for z in range(3):
-        spd = 24.0 + z * 8.0
-        x = (gMenuT * spd + z * (VIEW_W + 40) / 3.0) % (VIEW_W + 40.0) - 20.0
-        if x > VIEW_W:
-            continue
-        f = int(gZomWalkT * (6.0 * gAnimMul)) % (4 * gAnimMul)
-        fr = (ZOM2_RIGHT if texZombie2 is not None else ZOM_RIGHT)[f]
-        dst = (int(x), VIEW_H - 30 - fr[3] + 4, fr[2], fr[3])
-        vbuf.blit(texZombie2 if texZombie2 is not None else texZombie, (dst[0], dst[1]), pygame.Rect(fr[0], fr[1], fr[2], fr[3]))
 
 
 def render_lobby():
@@ -5428,7 +5427,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v61")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v62")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
