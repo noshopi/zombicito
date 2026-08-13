@@ -461,6 +461,8 @@ async function boot() {
         const names = ["zeke.png", "julie.png", "zombie.png", "victims.png", "items.png",
                        "exitdoor.png", "level_big.png", "level2_big.png", "level3_big.png", "level4_big.png",
                        "level5_big.png", "level6_big.png", "rex.png", "weapon_rifle.png",
+                       "level1_snes.png", "level2_snes.png", "level3_snes.png", "level4_snes.png",
+                       "level5_snes.png", "level6_snes.png",
                        "weapon_shotgun.png", "weapon_smg.png", "weapon_pistol.png", "weapon_magnum.png",
                        "weapon_minigun.png", "weapon_flamethrower.png", "weapon_rocket.png", "weapon_ray.png"];
         for (const n of names) {
@@ -481,6 +483,10 @@ async function boot() {
         pyodide.FS.mkdir("/assets");
         pyodide.FS.writeFile("/assets/walk_big.bin", new Uint8Array(walk));
         pyodide.FS.writeFile("/assets/walk2_big.bin", new Uint8Array(walk2));
+        for (let i = 1; i <= 6; i++) {
+            const wi = await (await fetch("/ZamnNative/assets/walk" + i + "_snes.bin")).arrayBuffer();
+            pyodide.FS.writeFile("/assets/walk" + i + "_snes.bin", new Uint8Array(wi));
+        }
         for (let i = 3; i <= 6; i++) {
             const wi = await (await fetch("/ZamnNative/assets/walk" + i + "_big.bin")).arrayBuffer();
             pyodide.FS.writeFile("/assets/walk" + i + "_big.bin", new Uint8Array(wi));
@@ -490,10 +496,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=85")).text();
+            const src = await (await fetch(f + "?v=86")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=85")).text();
+        const shim = await (await fetch("pygame.py?v=86")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

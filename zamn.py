@@ -869,13 +869,18 @@ def load_sheet(name, key_mode):
 
 def expand_world(tex, walk):
     """Scale a world and its walk mask together, preserving pixel collisions."""
+    source_tw = max(1, tex.get_width() // TS)
+    source_th = max(1, tex.get_height() // TS)
+    if len(walk) != source_tw * source_th:
+        source_tw = BASE_TW
+        source_th = BASE_TH
     tex = pygame.transform.scale(tex, (MAP_W, MAP_H))
     expanded = bytearray(TW * TH)
     for ty in range(TH):
-        sy = min(BASE_TH - 1, int(ty * BASE_TH / TH))
+        sy = min(source_th - 1, int(ty * source_th / TH))
         for tx in range(TW):
-            sx = min(BASE_TW - 1, int(tx * BASE_TW / TW))
-            expanded[ty * TW + tx] = walk[sy * BASE_TW + sx]
+            sx = min(source_tw - 1, int(tx * source_tw / TW))
+            expanded[ty * TW + tx] = walk[sy * source_tw + sx]
     return tex, connect_walk_regions(expanded)
 
 
@@ -951,33 +956,25 @@ def load_assets():
             gAnimMul = 2
         except OSError:
             texZeke2 = texJulie2 = texZombie2 = None
-    texLevel1 = pygame.image.load(os.path.join(ASSETS, "level_big.png")).convert()
-    with open(os.path.join(ASSETS, "walk_big.bin"), "rb") as f:
-        gWalk1 = bytearray(f.read())
-    if os.path.exists(os.path.join(ASSETS, "level1_deco.png")):
-        texLevel1 = pygame.image.load(os.path.join(ASSETS, "level1_deco.png")).convert()
-        with open(os.path.join(ASSETS, "walk1_deco.bin"), "rb") as f:
-            gWalk1 = bytearray(f.read())
-    texLevel1, gWalk1 = expand_world(texLevel1, gWalk1)
-    if os.path.exists(os.path.join(ASSETS, "level2_big.png")):
-        texLevel2 = pygame.image.load(os.path.join(ASSETS, "level2_big.png")).convert()
-        with open(os.path.join(ASSETS, "walk2_big.bin"), "rb") as f:
-            gWalk2 = bytearray(f.read())
-        texLevel2, gWalk2 = expand_world(texLevel2, gWalk2)
-    else:
-        texLevel2, gWalk2 = texLevel1, gWalk1
-    for i in range(3, 7):
-        image_path = os.path.join(ASSETS, "level%d_big.png" % i)
-        walk_path = os.path.join(ASSETS, "walk%d_big.bin" % i)
+    def load_world_file(number, fallback_image, fallback_walk):
+        image_path = os.path.join(ASSETS, "level%d_snes.png" % number)
+        walk_path = os.path.join(ASSETS, "walk%d_snes.bin" % number)
         if os.path.exists(image_path) and os.path.exists(walk_path):
-            globals()["texLevel%d" % i] = pygame.image.load(image_path).convert()
+            image = pygame.image.load(image_path).convert()
             with open(walk_path, "rb") as f:
-                globals()["gWalk%d" % i] = bytearray(f.read())
-            globals()["texLevel%d" % i], globals()["gWalk%d" % i] = expand_world(
-                globals()["texLevel%d" % i], globals()["gWalk%d" % i])
-        else:
-            globals()["texLevel%d" % i] = texLevel1
-            globals()["gWalk%d" % i] = gWalk1
+                walk = bytearray(f.read())
+            return expand_world(image, walk)
+        return fallback_image, fallback_walk
+
+    base_image = pygame.image.load(os.path.join(ASSETS, "level_big.png")).convert()
+    with open(os.path.join(ASSETS, "walk_big.bin"), "rb") as f:
+        base_walk = bytearray(f.read())
+    fallback1 = expand_world(base_image, base_walk)
+    worlds = [load_world_file(1, *fallback1)]
+    for i in range(2, 7):
+        worlds.append(load_world_file(i, *fallback1))
+    texLevel1, texLevel2, texLevel3, texLevel4, texLevel5, texLevel6 = [w[0] for w in worlds]
+    gWalk1, gWalk2, gWalk3, gWalk4, gWalk5, gWalk6 = [w[1] for w in worlds]
     build_world_variants()
     texLevel = texLevel1
     gWalk = gWalk1
@@ -5685,7 +5682,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v85")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v86")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
