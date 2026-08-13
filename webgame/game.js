@@ -394,7 +394,8 @@ async function boot() {
 
         statusEl.textContent = "cargando assets...";
         const names = ["zeke.png", "julie.png", "zombie.png", "victims.png", "items.png",
-                       "exitdoor.png", "level_big.png", "level2_big.png", "rex.png", "weapon_rifle.png",
+                       "exitdoor.png", "level_big.png", "level2_big.png", "level3_big.png", "level4_big.png",
+                       "level5_big.png", "level6_big.png", "rex.png", "weapon_rifle.png",
                        "weapon_shotgun.png", "weapon_smg.png", "weapon_pistol.png", "weapon_magnum.png",
                        "weapon_minigun.png", "weapon_flamethrower.png", "weapon_rocket.png", "weapon_ray.png"];
         for (const n of names) {
@@ -415,15 +416,19 @@ async function boot() {
         pyodide.FS.mkdir("/assets");
         pyodide.FS.writeFile("/assets/walk_big.bin", new Uint8Array(walk));
         pyodide.FS.writeFile("/assets/walk2_big.bin", new Uint8Array(walk2));
+        for (let i = 3; i <= 6; i++) {
+            const wi = await (await fetch("/ZamnNative/assets/walk" + i + "_big.bin")).arrayBuffer();
+            pyodide.FS.writeFile("/assets/walk" + i + "_big.bin", new Uint8Array(wi));
+        }
         for (const n of names) pyodide.FS.writeFile("/assets/" + n, new Uint8Array(0));
 
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=67")).text();
+            const src = await (await fetch(f + "?v=68")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=67")).text();
+        const shim = await (await fetch("pygame.py?v=68")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

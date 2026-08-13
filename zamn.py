@@ -112,6 +112,8 @@ WORLD_LAYOUT = [(VSPOTS_DAY, TSPAWN_DAY, MEDKITS_DAY), (VSPOTS2, TSPAWN2, MEDKIT
                 (VSPOTS3, TSPAWN3, MEDKITS3), (VSPOTS4, TSPAWN4, MEDKITS4),
                 (VSPOTS5, TSPAWN5, MEDKITS5), (VSPOTS6, TSPAWN6, MEDKITS6)]
 WORLD_COUNT = len(WORLD_NAMES)
+BOUNCE_LAYOUT = [[(720, 320)], [(1480, 320)], [(720, 980)],
+                 [(1480, 980)], [(720, 720)], [(1480, 720)]]
 
 # frame rects (mirror sprites.h, jitter-free recentered sheets)
 ZEKE_DOWN = [(86, 5, 16, 36), (108, 4, 16, 37), (128, 4, 16, 37), (148, 4, 16, 37)]
@@ -278,7 +280,7 @@ class Player:
                  "hurtT", "deadT", "stunT", "charId", "team", "ctrl", "alive", "used",
                  "netButtons", "netLastT", "botTarget", "botRepathT", "botAvoidT",
                  "botAvX", "botAvY", "botLastX", "botLastY", "botStuckT",
-                 "botPath", "botPathLen", "botPathPos", "ammo", "recoilT", "wpn", "inv", "stamina", "kills", "deaths", "shieldT")
+                 "botPath", "botPathLen", "botPathPos", "ammo", "recoilT", "wpn", "inv", "stamina", "kills", "deaths", "shieldT", "jumpT", "jumpV")
 
     def __init__(self):
         self.x = self.y = 0.0
@@ -317,6 +319,8 @@ class Player:
         self.kills = 0
         self.deaths = 0
         self.shieldT = 0.0
+        self.jumpT = 0.0
+        self.jumpV = 0.0
 
 
 class Zombie:
@@ -914,7 +918,8 @@ def build_world_variants():
 
 def load_assets():
     global texZeke, texJulie, texZombie, texVict, texItems, texDoor, texLevel, gWalk, texChars, texWeapons
-    global texLevel1, texLevel2, gWalk1, gWalk2
+    global texLevel1, texLevel2, texLevel3, texLevel4, texLevel5, texLevel6
+    global gWalk1, gWalk2, gWalk3, gWalk4, gWalk5, gWalk6
     global texZeke2, texJulie2, texZombie2, gAnimMul, texDrawn, gNeighborDrawn
     texZeke = load_sheet("zeke.png", 1)
     texJulie = load_sheet("julie.png", 1)
@@ -948,6 +953,18 @@ def load_assets():
         texLevel2, gWalk2 = expand_world(texLevel2, gWalk2)
     else:
         texLevel2, gWalk2 = texLevel1, gWalk1
+    for i in range(3, 7):
+        image_path = os.path.join(ASSETS, "level%d_big.png" % i)
+        walk_path = os.path.join(ASSETS, "walk%d_big.bin" % i)
+        if os.path.exists(image_path) and os.path.exists(walk_path):
+            globals()["texLevel%d" % i] = pygame.image.load(image_path).convert()
+            with open(walk_path, "rb") as f:
+                globals()["gWalk%d" % i] = bytearray(f.read())
+            globals()["texLevel%d" % i], globals()["gWalk%d" % i] = expand_world(
+                globals()["texLevel%d" % i], globals()["gWalk%d" % i])
+        else:
+            globals()["texLevel%d" % i] = texLevel1
+            globals()["gWalk%d" % i] = gWalk1
     build_world_variants()
     texLevel = texLevel1
     gWalk = gWalk1
@@ -2357,6 +2374,16 @@ def update_game(dt):
             P.y = ny
         else:
             P.vy = 0.0
+        if P.jumpT > 0:
+            P.jumpT = max(0.0, P.jumpT - dt)
+            P.jumpV -= 420.0 * dt
+        else:
+            for bx, by in BOUNCE_LAYOUT[gLevelSel % WORLD_COUNT]:
+                if (P.x - bx) ** 2 + (P.y - by) ** 2 < 18 * 18:
+                    P.jumpT = 0.55
+                    P.jumpV = 230.0
+                    play_snd(SND_MENU)
+                    break
         if abs(ix) > 0.05 or abs(iy) > 0.05:
             P.animT += dt * 9.0 * gAnimMul
             if abs(ix) > abs(iy) * 0.99:
@@ -3108,6 +3135,7 @@ def render_player(P, slot_idx):
     dip = int(math.sin((P.animT % 1.0) * 6.28318)) if P.animT > 0 else 0
     ox += (dip if P.dir == 3 else -dip if P.dir == 1 else 0)
     oy += (dip if P.dir == 0 else -dip if P.dir == 2 else 0)
+    oy -= max(0, min(80, int(P.jumpV * P.jumpT)))
     if P.stunT > 0:
         fr = set_f[P.frame % set_n]
         x, y, w, h = fr
@@ -3169,6 +3197,7 @@ def render_player_3d(P, slot_idx):
     dip = int(math.sin((P.animT % 1.0) * 6.28318)) if P.animT > 0 else 0
     ox += (dip if P.dir == 3 else -dip if P.dir == 1 else 0)
     oy += (dip if P.dir == 0 else -dip if P.dir == 2 else 0)
+    oy -= max(0, min(80, int(P.jumpV * P.jumpT)))
     wx = P.x + ox
     wy = P.y + 8 + oy
     if P.stunT > 0:
@@ -3247,6 +3276,10 @@ def render_game():
     update_camera()
     vbuf.blit(texLevel, (0, 0), pygame.Rect(int(gCamX), int(gCamY), VIEW_W, VIEW_H))
     draw_water_edges()
+    for bx, by in BOUNCE_LAYOUT[gLevelSel % WORLD_COUNT]:
+        sx, sy = int(bx - gCamX), int(by - gCamY)
+        pygame.draw.ellipse(vbuf, (190, 70, 210), (sx - 12, sy - 5, 24, 10), 2)
+        pygame.draw.line(vbuf, (255, 180, 255), (sx - 8, sy), (sx + 8, sy), 2)
     if gMode != MODE_TEAMS:
         shadow2d(vbuf, gDoorX, gDoorY + 38, 32)
         blit_sheet(vbuf, texDoor, DOOR_OPEN if gDoorOpen else DOOR_CLOSED, gDoorX, gDoorY + 38, False)
@@ -3677,7 +3710,7 @@ def host_announce():
         import json as _json
         import urllib.request
         body = _json.dumps({
-            "name": gLobName, "host": socket.gethostname(),
+            "name": (gLobName.strip() or "LOBBY")[:15], "host": "zombicito.duckdns.org",
             "region": 1 if gServerMode else 0,
             "filled": sum(1 for k in gKinds if k), "slots": MAX_PLAYERS,
             "started": gNetStarted}).encode()
@@ -3943,7 +3976,6 @@ def render_lobby():
             vbuf.fill((14, 8, 26), (cx - 42, 202, 84, 18))
             pygame.draw.rect(vbuf, (200, 160, 66), (cx - 42, 202, 84, 18), 1)
             draw_text_c(vbuf, cx, 204, 1, (255, 230, 120), label)
-        draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 12, 1, (150, 140, 160), tr("create_hint"))
     else:
         # lobby: 4 teams x 3 slots + chat window
         filled = sum(1 for k in gKinds if k)
@@ -4097,9 +4129,8 @@ def render_options():
         sc_row(VIEW_W // 2, 68 + i * 26, 240, rows[i], i, i == gOptIdx or i == h, 0.12, 2)
         if i == 2:
             # Side arrows belong exclusively to the selected volume control.
-            if gOptIdx == 2:
-                pygame.draw.polygon(vbuf, (200, 160, 66), [(24, 124), (44, 108), (44, 140)])
-                pygame.draw.polygon(vbuf, (200, 160, 66), [(456, 124), (436, 108), (436, 140)])
+            pygame.draw.polygon(vbuf, (200, 160, 66), [(24, 124), (44, 108), (44, 140)])
+            pygame.draw.polygon(vbuf, (200, 160, 66), [(456, 124), (436, 108), (436, 140)])
             # volume bars
             for seg in range(8):
                 on = gVolume >= (seg + 1) * 12
@@ -4107,7 +4138,6 @@ def render_options():
                 if on:
                     vbuf.fill((255, 210, 110), (VIEW_W // 2 - 108 + seg * 8, 82, 6, 5))
                     vbuf.fill((255, 240, 190), (VIEW_W // 2 - 108 + seg * 8, 82, 6, 2))
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 22, 1, (150, 140, 160), tr("opts_hint"))
 
 
 def mouse_vbuf():
@@ -4191,11 +4221,11 @@ def options_click(mx, my):
         gSt = ST_MENU
         play_snd(SND_MENU)
         return
-    if gOptIdx == 2 and 18 <= mx <= 50 and 104 <= my <= 144:
+    if 18 <= mx <= 50 and 104 <= my <= 144:
         gVolume = max(0, gVolume - 1)
         play_snd(SND_CONFIRM)
         return
-    if gOptIdx == 2 and 430 <= mx <= 462 and 104 <= my <= 144:
+    if 430 <= mx <= 462 and 104 <= my <= 144:
         gVolume = min(10, gVolume + 1)
         play_snd(SND_CONFIRM)
         return
@@ -4509,7 +4539,6 @@ def render_creator():
                 pygame.draw.rect(vbuf, (20, 12, 34), (442, y - 4, 20, 20))
                 pygame.draw.rect(vbuf, rc, (442, y - 4, 20, 20), 1)
                 draw_text_c(vbuf, 452, y, 1, rc, ">")
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 16, 1, (150, 140, 160), tr("creator_hint"))
 
 
 # ---------------- character pixel editor ----------------
@@ -4586,7 +4615,7 @@ def _load_guide_cell(bi):
 
 
 def editor_open():
-    global gEdFrames, gEdFW, gEdFH, gEdAction, gEdFrame, gEdColor, gEdErase, gEdL1, gEdL2, gEdPlay, gEdT, gEdFlashT, gEdButtonT, gEdPressed, gEdMode, gSt, gEdRefTex, gEdGuide, gEdGhostMirrorLeft, gEdGhostIsTemplate
+    global gEdFrames, gEdFW, gEdFH, gEdAction, gEdFrame, gEdColor, gEdErase, gEdBrush, gEdL1, gEdL2, gEdPlay, gEdT, gEdFlashT, gEdButtonT, gEdPressed, gEdMode, gSt, gEdRefTex, gEdGuide, gEdGhostMirrorLeft, gEdGhostIsTemplate
     global texTemplateZeke, texTemplateJulie, texTemplateRusty, texTemplateAzura, texTemplateDante
     
     # Load templates from plantillas_personajes folder if not already loaded
@@ -4724,6 +4753,7 @@ def neighbors_open():
     gEdAction = gEdFrame = 0
     gEdColor = 2
     gEdErase = False
+    gEdBrush = 1
     gEdL1 = gEdL2 = True
     gEdPlay = False
     gEdT = gEdFlashT = gEdButtonT = 0.0
@@ -4876,11 +4906,17 @@ def ed_paint(mx, my, force_erase=False):
     if rx < 0:
         return
     idx = gEdAction * 8 + gEdFrame
-    if gEdErase or force_erase:
-        ed_px(gEdFrames[idx], rx, ry, (0, 0, 0, 0))
-    else:
-        c = EDIT_PAL[gEdColor]
-        ed_px(gEdFrames[idx], rx, ry, (c[0], c[1], c[2], 255))
+    color = (0, 0, 0, 0) if gEdErase or force_erase else (*EDIT_PAL[gEdColor], 255)
+    radius = gEdBrush // 2
+    for py in range(ry - radius, ry + radius + 1):
+        for px in range(rx - radius, rx + radius + 1):
+            if 0 <= px < gEdFW and 0 <= py < gEdFH:
+                ed_px(gEdFrames[idx], px, py, color)
+
+
+def editor_brush_wheel(delta):
+    global gEdBrush
+    gEdBrush = max(1, min(5, gEdBrush + (1 if delta > 0 else -1)))
 
 
 def ed_complete():
@@ -5276,8 +5312,6 @@ def _editor_ghost():
     """Return a semi-transparent reference frame for the editor - ONLY from templates, NEVER from gameplay sheets."""
     try:
         # ONLY use gEdRefTex (from templates), NEVER use texChars
-        if gEdRefTex is not None and gEdRefTex in texChars:
-            return None
         if gEdRefTex is not None:
             row = gEdAction if gEdAction < 4 else 0
             # Gallery sheets can use a different cell size. Read their own
@@ -5285,11 +5319,10 @@ def _editor_ghost():
             src_fw = max(1, gEdRefTex.get_width() // 8)
             src_fh = max(1, gEdRefTex.get_height() // 4)
             mirror = gEdGhostMirrorLeft and row in (1, 3)
-            if mirror and row == 1:
+            if row == 3 and gEdGhostMirrorLeft:
+                # Three-row templates have no native right-facing row.
                 row = 1
-            elif mirror:
-                row = 1
-                mirror = False
+                mirror = True
             x = gEdFrame * src_fw
             y = row * src_fh
             # Scale the reference cell to exactly the drawing pad. This keeps
@@ -5427,7 +5460,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v67")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v68")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5539,6 +5572,22 @@ def render_editor():
         vbuf.blit(pygame.transform.scale(gEdFrames[preview_idx], (pcw, pch)), (px0, py0))
     except Exception:
         pass
+
+
+def web_host_announce():
+    """Publish a browser lobby through the same-origin directory relay."""
+    try:
+        from js import window
+        window._announceLobby({
+            "name": (gLobName.strip() or "LOBBY")[:15],
+            "host": "browser",
+            "region": 1,
+            "filled": sum(1 for k in gKinds if k),
+            "slots": MAX_PLAYERS,
+            "started": gNetStarted,
+        })
+    except Exception:
+        pass
     # ---- timeline (line + dots + playhead) ----
     x0, y0, cw, ch = _ed_pad_rect()
     tlx, tsp, tly = 54, 52, y0 + ch + 18
@@ -5573,7 +5622,6 @@ def render_editor():
         else:
             m = tr("ed_incomplete")
         draw_text_c(vbuf, VIEW_W // 2, 118, 2, (120, 255, 160), m)
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 8, 1, (150, 140, 160), tr("ed_hint"))
 
 
 def render_gallery():
@@ -5631,7 +5679,6 @@ def render_gallery():
                     [tr("ed_back"), tr("gal_use"), tr("gal_refresh")][b])
     if gGalFlashT > 0:
         draw_text_c(vbuf, VIEW_W // 2, 182, 1, (120, 255, 160), tr("gal_used"))
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 6, 1, (150, 140, 160), tr("gal_hint"))
 
 
 def render_profile():
@@ -5665,7 +5712,6 @@ def render_profile():
         vbuf.fill(rc, (90, 176, int(300 * rate / 100.0), 8))
         vbuf.fill((255, 255, 255), (90, 176, int(300 * rate / 100.0), 2))
     pygame.draw.rect(vbuf, (90, 70, 40), (90, 176, 300, 8), 1)
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 22, 1, (150, 140, 160), tr("profile_back"))
 
 
 def render_weapons():
@@ -5696,8 +5742,6 @@ def render_weapons():
     draw_text_c(vbuf, 384, 174, 1, (205, 198, 220), "CADENCIA %d" % int(round(1.0 / w[1])))
     draw_text_c(vbuf, 384, 188, 1, (205, 198, 220), "MUNICION %d" % w[5])
     draw_text_c(vbuf, 384, 202, 1, (205, 198, 220), "VELOCIDAD %d" % int(w[4]))
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 16, 1, (150, 140, 160),
-                "ENTER/ESC: VOLVER   -   1-9: EQUIPAR EN PARTIDA")
 
 
 def render_endcard(win):
@@ -5724,7 +5768,6 @@ def render_endcard(win):
     else:
         sc_title(VIEW_W // 2, 52, tr("end_over"), (235, 60, 70), 3)
         draw_text_c(vbuf, VIEW_W // 2, 110, 2, (255, 255, 255), tr("end_zombies"))
-    draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 40, 1, (230, 210, 255), tr("end_back"))
 
 
 def rerender_current():
@@ -6130,7 +6173,14 @@ def frame(clock=None, auto=0):
                 gMouseErase = False
                 gCreatorPress = (-1, -1)
         elif ev.type == pygame.MOUSEWHEEL:
-            gWheel += ev.y
+            mx, my = mouse_vbuf()
+            if gSt == ST_EDITOR and _ed_rect_contains(_ed_pad_rect(), mx, my):
+                editor_brush_wheel(ev.y)
+            elif gSt == ST_OPTIONS and 130 <= mx <= 350 and abs(my - 120) <= 9:
+                gVolume = max(0, min(10, gVolume + (1 if ev.y > 0 else -1)))
+                play_snd(SND_CONFIRM)
+            else:
+                gWheel += ev.y
         if ev.type != pygame.KEYDOWN or auto:
             continue
         kc = ev.key
