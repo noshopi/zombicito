@@ -4419,6 +4419,8 @@ def lobby_click(mx, my):
                                 gLobReady[si] = 0
                     if gSock is not None and not IS_WEB:
                         host_broadcast_lobby()
+                    if IS_WEB:
+                        web_host_announce()
                     play_snd(SND_MENU)
                 elif b == 2 and gLobStage == 1 and gMySlot == 0:
                     lobby_start_match()
@@ -4459,6 +4461,8 @@ def lobby_click(mx, my):
                         if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
                             if gBotEnabled[gLobSelRow]:
                                 gBotEnabled[gLobSelRow] = 0
+                                if IS_WEB:
+                                    web_host_announce()
                                 play_snd(SND_MENU)
                             else:
                                 _lobby_sit_local(gLobSelRow)
@@ -5604,7 +5608,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v80")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v81")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5839,8 +5843,9 @@ def web_lobby_sync():
             gMySlot = slot
             gLocalSlot = slot
         if gHosting:
-            requests = state.requests
-            for i in range(int(requests.length)):
+            requests = getattr(state, "requests", None)
+            request_count = int(requests.length) if requests is not None else 0
+            for i in range(request_count):
                 req = requests[i]
                 client = str(req.client)
                 action = str(req.action)

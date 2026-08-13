@@ -95,9 +95,18 @@ while ($true) {
                 $body = $head.Substring($bi + 4)
                 try {
                     $o = $body | ConvertFrom-Json
-                    $old = @($script:Lobbies | Where-Object { $_.name -eq $o.name -and $_.host -eq $o.host })
+                    $same = if ([string]$o.host -like "web-*") {
+                        @($script:Lobbies | Where-Object { $_.host -eq $o.host })
+                    } else {
+                        @($script:Lobbies | Where-Object { $_.name -eq $o.name -and $_.host -eq $o.host })
+                    }
+                    $old = $same
                     $requests = if ($old.Count -gt 0) { @($old[0].requests) } else { @() }
-                    $script:Lobbies = @($script:Lobbies | Where-Object { -not ($_.name -eq $o.name -and $_.host -eq $o.host) })
+                    if ([string]$o.host -like "web-*") {
+                        $script:Lobbies = @($script:Lobbies | Where-Object { $_.host -ne $o.host })
+                    } else {
+                        $script:Lobbies = @($script:Lobbies | Where-Object { -not ($_.name -eq $o.name -and $_.host -eq $o.host) })
+                    }
                     $script:Lobbies += @{ name = [string]$o.name; host = [string]$o.host; region = [int]$o.region;
                                           filled = [int]$o.filled; slots = [int]$o.slots;
                                           started = [int]$o.started; owner = [string]$o.owner;
