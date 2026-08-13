@@ -109,6 +109,7 @@ while ($true) {
                     }
                     $script:Lobbies += @{ name = [string]$o.name; host = [string]$o.host; region = [int]$o.region;
                                           filled = [int]$o.filled; slots = [int]$o.slots;
+                                          world = [int]$o.world;
                                           started = [int]$o.started; owner = [string]$o.owner;
                                           kinds = @($o.kinds); bots = @($o.bots); teams = @($o.teams);
                                           chars = @($o.chars); ready = @($o.ready);
@@ -122,8 +123,17 @@ while ($true) {
         } elseif ($url -eq "/api/lobbies") {
             $script:Lobbies = @($script:Lobbies | Where-Object { ((Get-Date) - $_.t).TotalSeconds -lt 8 })
             $list = @($script:Lobbies | ForEach-Object {
+                $details = @()
+                $n = if ($_.kinds) { @($_.kinds).Count } else { 0 }
+                for ($i = 0; $i -lt $n; $i++) {
+                    $details += @{ slot = $i; kind = [int]$_.kinds[$i]; bot = [int]$_.bots[$i];
+                                    ready = [int]$_.ready[$i]; team = [int]$_.teams[$i]; char = [int]$_.chars[$i] }
+                }
+                $botCount = @($details | Where-Object { $_.bot -eq 1 -and $_.kind -eq 0 }).Count
                 @{ name = $_.name; host = $_.host; region = $_.region; filled = $_.filled;
-                   slots = $_.slots; started = $_.started }
+                   slots = $_.slots; started = $_.started; world = $_.world;
+                   bots = $botCount; free = ([int]$_.slots - [int]$_.filled - $botCount);
+                   details = $details }
             })
             $json = $list | ConvertTo-Json -Compress
             if ($null -eq $json) { $json = "[]" }

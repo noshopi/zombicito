@@ -387,7 +387,7 @@ class Team:
 
 class LobbyEntry:
     __slots__ = ("addr", "port", "started", "filled", "slots", "mode2teams", "name", "host", "lastSeen",
-                 "region", "ping", "pingSeq", "pingSentT")
+                 "region", "world", "bots", "free", "details", "ping", "pingSeq", "pingSentT")
 
     def __init__(self):
         self.addr = ""
@@ -400,6 +400,10 @@ class LobbyEntry:
         self.host = ""
         self.lastSeen = 0.0
         self.region = 0
+        self.world = 0
+        self.bots = 0
+        self.free = 0
+        self.details = []
         self.ping = -1
         self.pingSeq = 0
         self.pingSentT = 0.0
@@ -3752,6 +3756,16 @@ def _web_lobby_ingest():
             e.slots = int(o.slots)
             e.started = int(o.started)
             e.region = int(o.region)
+            e.world = int(getattr(o, "world", 0) or 0)
+            e.bots = int(getattr(o, "bots", 0) or 0)
+            e.free = int(getattr(o, "free", 0) or 0)
+            e.details = []
+            details = getattr(o, "details", None)
+            if details is not None:
+                for d in details:
+                    e.details.append({"slot": int(d.slot), "kind": int(d.kind),
+                                      "bot": int(d.bot), "ready": int(d.ready),
+                                      "team": int(d.team), "char": int(d.char)})
             e.addr = e.host
             e.port = NET_PORT
             e.ping = int(window._apiPing)
@@ -3771,6 +3785,8 @@ def host_announce():
             "name": (gLobName.strip() or "LOBBY")[:15], "host": "zombicito.duckdns.org",
             "region": 1 if gServerMode else 0,
             "filled": sum(1 for k in gKinds if k), "slots": MAX_PLAYERS,
+            "world": gLevelSel, "kinds": list(gKinds), "bots": list(gBotEnabled),
+            "teams": list(gLobTeam), "chars": list(gLobChar), "ready": list(gLobReady),
             "started": gNetStarted}).encode()
         req = urllib.request.Request("http://zombicito.duckdns.org:7070/api/announce",
                                      data=body, headers={"Content-Type": "application/json"})
@@ -3968,8 +3984,8 @@ def render_lobby():
         # lobby list (improved rows + editor-style bottom buttons)
         sc_panel(vbuf, (14, 26, VIEW_W - 28, VIEW_H - 82), (16, 9, 24), g, 10)
         draw_text_c(vbuf, VIEW_W // 2, 32, 1, g, tr("lobby_list_title"))
-        draw_text_c(vbuf, VIEW_W // 2, 44, 1, (170, 160, 185),
-                    "LOBBY                     REGION  PING  JUGADORES")
+        draw_text(vbuf, 22, 44, 1, (170, 160, 185), "SALAS DISPONIBLES")
+        draw_text(vbuf, 276, 44, 1, (170, 160, 185), "DETALLE DE LA SALA")
         if gLobCount == 0:
             dots = "." * (1 + int(gMenuT * 2.5) % 3)
             draw_text_c(vbuf, VIEW_W // 2, 110, 1, (230, 210, 255), tr("lobby_scan") + dots)
@@ -3981,26 +3997,45 @@ def render_lobby():
                 sy = 58 + pos * 26
                 sel = pos == gLobSel
                 if sel:
-                    vbuf.fill((30, 18, 44), (20, sy - 3, VIEW_W - 40, 22))
-                    pygame.draw.rect(vbuf, g, (20, sy - 3, VIEW_W - 40, 22), 1)
-                name = e.name[:19].ljust(19)
+                    vbuf.fill((30, 18, 44), (20, sy - 3, 230, 22))
+                    pygame.draw.rect(vbuf, g, (20, sy - 3, 230, 22), 1)
+                name = e.name[:17].ljust(17)
                 mc = (255, 255, 120) if sel else ((110, 110, 110) if e.started else (220, 215, 230))
                 draw_text(vbuf, 22, sy, 1, mc, name)
                 rc = (120, 200, 255) if e.region == 1 else (140, 230, 140)
-                draw_text(vbuf, 176, sy, 1, rc, "ONLINE" if e.region == 1 else "LAN")
-                if e.ping >= 0:
-                    pc = (110, 235, 70) if e.ping < 80 else ((255, 200, 60) if e.ping < 200 else (235, 70, 70))
-                    draw_text(vbuf, 224, sy, 1, pc, "%dms" % e.ping)
-                else:
-                    draw_text(vbuf, 224, sy, 1, (110, 110, 110), "--")
-                draw_text(vbuf, 276, sy, 1, mc, "%d/12" % e.filled)
-                stc = (110, 235, 70) if not e.started else (235, 70, 70)
-                draw_text(vbuf, 320, sy, 1, stc, tr("lobby_playing") if e.started else tr("lobby_waiting"))
+                draw_text(vbuf, 22, sy + 10, 1, rc, "ONLINE" if e.region == 1 else "LAN")
+                draw_text(vbuf, 140, sy + 10, 1, mc, "%d/%d" % (e.filled, e.slots or 12))
                 if sel:
                     menu_cursor(14, sy + 4, "x", 1)
-            draw_text_c(vbuf, VIEW_W // 2, 214, 1, (170, 160, 185),
-                        "%d LOBBY%s   -   %s" % (gLobCount, "" if gLobCount == 1 else "S",
-                        WORLD_NAMES[gLevelSel % WORLD_COUNT]))
+            draw_text(vbuf, 22, 214, 1, (170, 160, 185), "%d SALA%s" % (gLobCount, "" if gLobCount == 1 else "S"))
+        if gLobCount > 0:
+            order = sorted(range(gLobCount), key=lambda i: (gLobList[i].started, -gLobList[i].filled))
+            selected_entry = gLobList[order[min(gLobSel, len(order) - 1)]]
+            sc_panel(vbuf, (264, 50, 204, 166), (12, 8, 20), g, 6)
+            draw_text(vbuf, 274, 58, 1, (255, 230, 120), selected_entry.name[:22])
+            world_name = WORLD_NAMES[selected_entry.world % WORLD_COUNT]
+            draw_text(vbuf, 274, 70, 1, WORLD_TINT[selected_entry.world % WORLD_COUNT], world_name[:22])
+            draw_text(vbuf, 274, 82, 1, (205, 198, 220),
+                      "%d/%d JUG  %d BOT  %d LIBRES" %
+                      (selected_entry.filled, selected_entry.slots or 12,
+                       selected_entry.bots, selected_entry.free))
+            draw_text(vbuf, 274, 94, 1, (110, 235, 110) if not selected_entry.started else (235, 70, 70),
+                      tr("lobby_waiting") if not selected_entry.started else tr("lobby_playing"))
+            details = selected_entry.details
+            for di in range(min(len(details), 10)):
+                d = details[di]
+                if d["kind"] == 0 and d["bot"]:
+                    label = "BOT"
+                elif d["kind"] == 0:
+                    label = "LIBRE"
+                elif d["kind"] == 1:
+                    label = "HOST"
+                else:
+                    label = "PC %d" % d["kind"]
+                ready_label = "OK" if d["ready"] else "--"
+                draw_text(vbuf, 274, 106 + di * 10, 1,
+                          TEAMCOL[d["team"] % len(TEAMCOL)],
+                          "S%02d %-5s %s" % (d["slot"] + 1, label, ready_label))
         for b, cx, label in ((0, 60, tr("ed_back")), (1, 240, tr("gal_refresh")), (2, 420, tr("lobby_join"))):
             vbuf.fill((14, 8, 26), (cx - 42, 238, 84, 18))
             pygame.draw.rect(vbuf, (200, 160, 66), (cx - 42, 238, 84, 18), 1)
@@ -5649,7 +5684,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v83")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v84")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5826,6 +5861,10 @@ def directory_poll():
             e.filled = int(row.get("filled", 0))
             e.slots = int(row.get("slots", MAX_PLAYERS))
             e.started = int(row.get("started", 0))
+            e.world = int(row.get("world", 0))
+            e.bots = int(row.get("bots", 0))
+            e.free = int(row.get("free", 0))
+            e.details = list(row.get("details", []))
             e.ping = -1
             e.lastSeen = gNetTime
     except Exception:
@@ -5845,6 +5884,7 @@ def web_host_announce():
             "region": 1,
             "filled": sum(1 for k in gKinds if k),
             "slots": MAX_PLAYERS,
+            "world": gLevelSel,
             "started": gNetStarted,
             "kinds": list(gKinds), "bots": list(gBotEnabled),
             "teams": list(gLobTeam), "chars": list(gLobChar),
