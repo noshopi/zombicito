@@ -265,6 +265,7 @@ typedef struct {                                                        /* 2 hos
     unsigned char type, mode2teams, started, yourSlot;
     unsigned char kinds[MAX_PLAYERS];  /* 0 cpu, 1 host, 2+ client n */
     unsigned char team[MAX_PLAYERS], charId[MAX_PLAYERS];  /* starcraft-style lobby choices */
+    unsigned char ready[MAX_PLAYERS], botEnabled[MAX_PLAYERS];
 } PkLobby;
 typedef struct { unsigned char type, slot, buttons, seq; } PkInput;     /* 3 client->host */
 typedef struct { unsigned char type, slot, team, charId; } PkEdit;      /* 6 client->host lobby edit */
@@ -292,6 +293,7 @@ static struct sockaddr_in gClientAddr[MAX_PLAYERS]; /* host: addr per slot */
 static int gClientKnown[MAX_PLAYERS];
 static unsigned char gKinds[MAX_PLAYERS];
 static unsigned char gLobTeam[MAX_PLAYERS], gLobChar[MAX_PLAYERS];
+static unsigned char gLobReady[MAX_PLAYERS], gBotEnabled[MAX_PLAYERS];
 static int gNetStarted = 0, gNetPhase = 1;
 static int gMySlot = 0;
 static float gNetLastRx = 0, gNetTime = 0, gLobbyBcastT = 0, gJoinReqT = 0, gJoinStartT = 0;
@@ -331,7 +333,11 @@ static int net_host_open(void) {
     if (bind(gSock, (struct sockaddr *)&a, sizeof a) != 0) { net_close(); return 0; }
     u_long nb = 1; ioctlsocket(gSock, FIONBIO, &nb);
     memset(gKinds, 0, sizeof gKinds);
-    for (int i = 0; i < MAX_PLAYERS; i++) { gLobTeam[i] = (unsigned char)(i / 2); gLobChar[i] = (unsigned char)(i & 1); }
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        gLobTeam[i] = (unsigned char)(i / 2); gLobChar[i] = (unsigned char)(i & 1);
+        gLobReady[i] = 1; gBotEnabled[i] = 1;
+    }
+    gLobReady[0] = 0; gBotEnabled[0] = 0;
     gKinds[0] = 1; gMySlot = 0; gHosting = 1; gNetPhase = 1;
     return 1;
 }
@@ -375,6 +381,7 @@ static int next_free_human_slot(void) {
     static const int pref2[4] = {0, 2, 1, 3};
     const int *pref = gTeamCount == 2 ? pref2 : pref4;
     int n = gTeamCount * 2;
+    for (int i = 0; i < n; i++) if (gKinds[pref[i]] == 0 && !gBotEnabled[pref[i]]) return pref[i];
     for (int i = 0; i < n; i++) if (gKinds[pref[i]] == 0) return pref[i];
     return -1;
 }
@@ -421,6 +428,8 @@ static void host_send_lobby(struct sockaddr_in *to, int slot) {
     memcpy(p.kinds, gKinds, sizeof p.kinds);
     memcpy(p.team, gLobTeam, sizeof p.team);
     memcpy(p.charId, gLobChar, sizeof p.charId);
+    memcpy(p.ready, gLobReady, sizeof p.ready);
+    memcpy(p.botEnabled, gBotEnabled, sizeof p.botEnabled);
     sendto(gSock, (char *)&p, sizeof p, 0, (struct sockaddr *)to, sizeof *to);
 }
 static void host_poll(void) {
@@ -440,6 +449,7 @@ static void host_poll(void) {
                     int clientNo = 2;
                     for (int i = 0; i < MAX_PLAYERS; i++) if (gKinds[i] >= 2) clientNo++;
                     gKinds[slot] = (unsigned char)clientNo;
+                    gBotEnabled[slot] = 0; gLobReady[slot] = 0;
                     gClientAddr[slot] = from; gClientKnown[slot] = 1;
                     if (gNumPlayers > slot) gP[slot].netLastT = gNetTime;
                     if (gServerMode) printf("SERVER: PC %d joined\n", clientNo);
@@ -452,6 +462,7 @@ static void host_poll(void) {
                     int clientNo = 2;
                     for (int i = 0; i < MAX_PLAYERS; i++) if (gKinds[i] >= 2) clientNo++;
                     gKinds[slot] = (unsigned char)clientNo;
+                    gBotEnabled[slot] = 0; gLobReady[slot] = 0;
                     gClientAddr[slot] = from; gClientKnown[slot] = 1;
                     gP[slot].ctrl = CTRL_NET; gP[slot].alive = 1; gP[slot].hp = 5;
                     gP[slot].hurtT = 2.f;
@@ -583,6 +594,8 @@ static int client_poll(void) {
             memcpy(gKinds, p->kinds, sizeof gKinds);
             memcpy(gLobTeam, p->team, sizeof gLobTeam);
             memcpy(gLobChar, p->charId, sizeof gLobChar);
+            memcpy(gLobReady, p->ready, sizeof gLobReady);
+            memcpy(gBotEnabled, p->botEnabled, sizeof gBotEnabled);
             gLobbyGot = 1;
             if (p->started) gNetStarted = 1;
             gNetLastRx = gNetTime; got = 1;
@@ -619,7 +632,8 @@ static void game_reset(Mode mode, int charSel) {
     gNumVictims = mode == MODE_SP ? 12 : MAX_VICTIMS;
     for (int i = 0; i < gNumPlayers; i++) {
         Player *P = &gP[i];
-        P->used = 1; P->alive = 1;
+        P->used = (i == gMySlot || gKinds[i] >= 2 || gBotEnabled[i]) ? 1 : 0;
+        P->alive = P->used;
         P->hp = 5; P->lives = mode == MODE_SP ? 3 : 99;
         P->botTarget = -1;
         if (mode == MODE_TEAMS) {
@@ -1360,7 +1374,7 @@ static void render_lobby(void) {
         snprintf(hdr, sizeof hdr, "SLOT  PLAYER %s      TEAM     CHAR", gTeamCount == 2 ? "     " : "");
         draw_text_c(VIEW_W / 2, 30, 1, (SDL_Color){170, 160, 185, 255}, hdr);        for (int i = 0; i < n; i++) {
             int sy = 46 + i * 16;
-            const char *who = "CPU";
+            const char *who = gBotEnabled[i] ? "CPU" : "";
             char pcbuf[12];
             if (gKinds[i] == 1) who = gLobStage == 1 ? "YOU" : "HOST";
             else if (gKinds[i] >= 2) {
