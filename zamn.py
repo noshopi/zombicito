@@ -4373,6 +4373,13 @@ def lobby_click(mx, my):
                 return
         return
     if gLobStage == 4:
+        for i in range(WORLD_COUNT):
+            col, row = i % 2, i // 2
+            rx, ry = 260 + col * 104, 42 + row * 23
+            if rx <= mx <= rx + 96 and ry <= my <= ry + 18:
+                gLevelSel = i
+                play_snd(SND_MENU)
+                return
         # world selector arrows
         if 22 <= mx <= 44 and 112 <= my <= 130:
             gLevelSel = (gLevelSel + WORLD_COUNT - 1) % WORLD_COUNT
@@ -5498,7 +5505,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v73")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v74")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
