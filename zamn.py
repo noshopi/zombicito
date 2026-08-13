@@ -4018,6 +4018,10 @@ def render_lobby():
                     draw_text(vbuf, bx + 26, sy + 19, 1, (110, 235, 70), tr("ready"))
                 else:
                     draw_text(vbuf, bx + 26, sy + 19, 1, (255, 200, 60), tr("not_ready"))
+                if mine:
+                    vbuf.fill((30, 18, 44), (bx + 72, sy + 13, 38, 13))
+                    pygame.draw.rect(vbuf, (200, 160, 66), (bx + 72, sy + 13, 38, 13), 1)
+                    draw_text_c(vbuf, bx + 91, sy + 15, 1, (255, 230, 120), "OK" if rdy else "LISTO")
                 if mine and rdy:
                     vbuf.fill((110, 235, 70), (bx + 96, sy + 4, 12, 10))
                     vbuf.fill((40, 90, 40), (bx + 96, sy + 8, 12, 2))
@@ -4066,10 +4070,12 @@ def render_lobby():
                             tr("lobby_ready_n") % ready_n + " - " + tr("lobby_auto"))
             else:
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (255, 255, 120), tr("lobby_connect"))
-        # editor-style bottom buttons (same look as the design screen)
-        for b, cx, label in ((0, 52, tr("ed_back")), (1, 142, tr("ready")),
-                             (2, 232, tr("menu_characters")), (3, 330, "MUNDO <"), (4, 420, "MUNDO >")):
-            fill = (30, 18, 44) if b < 3 else (14, 8, 26)
+        # Back and creator-only launch controls.
+        buttons = [(52, tr("ed_back"))]
+        if gLobStage == 1 and gMySlot == 0:
+            buttons.append((420, "LANZAR"))
+        for cx, label in buttons:
+            fill = (30, 18, 44)
             vbuf.fill(fill, (cx - 42, 254, 84, 14))
             pygame.draw.rect(vbuf, (200, 160, 66), (cx - 42, 254, 84, 14), 1)
             draw_text_c(vbuf, cx, 255, 1, (255, 230, 120), label[:12])
@@ -4347,27 +4353,15 @@ def lobby_click(mx, my):
             return
         return
     if gLobStage in (1, 2):
-        # editor-style bottom buttons
-        for b, cx in ((0, 52), (1, 142), (2, 232), (3, 330), (4, 420)):
+        # Only the creator can launch; READY lives in the player's card.
+        for b, cx in ((0, 52), (1, 420)):
             if abs(mx - cx) <= 42 and 254 <= my <= 268:
                 if b == 0:
                     play_snd(SND_MENU)
                     gSt = ST_MENU
-                elif b == 1:
-                    if gLobStage == 1:
-                        gLobReady[gMySlot] ^= 1
-                    else:
-                        _lobby_ready_net(gMySlot, 0 if gLobReady[gMySlot] else 1)
-                        gLobReady[gMySlot] ^= 1
-                    play_snd(SND_MENU)
-                elif b == 2:
-                    msg("PERSONAJE: SELECCIONA DESDE EL MENU")
-                    play_snd(SND_MENU)
-                else:
-                    gLevelSel = (gLevelSel + (1 if b == 4 else -1)) % WORLD_COUNT
+                elif b == 1 and gLobStage == 1 and gMySlot == 0:
+                    lobby_start_match()
                     play_snd(SND_CONFIRM)
-                    if gLobStage == 1:
-                        host_broadcast_lobby()
                 return
         # click the level tag (top right): only the host changes the map
         if my < 20 and mx > VIEW_W - 110 and gHosting:
@@ -4391,9 +4385,17 @@ def lobby_click(mx, my):
                 if sy - 5 <= my <= sy + 31:
                     gLobSelRow = t * 3 + m
                     if gLobStage == 1:
-                        if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
-                            gBotEnabled[gLobSelRow] ^= 1
+                        if gLobSelRow == gMySlot and bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28:
+                            gLobReady[gMySlot] ^= 1
                             play_snd(SND_MENU)
+                            return
+                        if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
+                            if gBotEnabled[gLobSelRow]:
+                                gBotEnabled[gLobSelRow] = 0
+                                play_snd(SND_MENU)
+                            else:
+                                _lobby_sit_local(gLobSelRow)
+                                play_snd(SND_CONFIRM)
                         elif gLobSelRow == gMySlot:
                             _lobby_sit_local(gLobSelRow)
                             play_snd(SND_CONFIRM)
@@ -5427,7 +5429,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v64")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v65")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6311,42 +6313,6 @@ def frame(clock=None, auto=0):
                         gLevelSel = (gLevelSel + WORLD_COUNT - 1) % WORLD_COUNT
                     play_snd(SND_CONFIRM)
                     host_broadcast_lobby()
-                # move cursor over the 4x3 grid
-                team, member = gLobSelRow // 3, gLobSelRow % 3
-                if kc in (pygame.K_LEFT, pygame.K_a):
-                    team = (team + 3) % 4
-                    play_snd(SND_MENU)
-                if kc in (pygame.K_RIGHT, pygame.K_d):
-                    team = (team + 1) % 4
-                    play_snd(SND_MENU)
-                if kc in (pygame.K_UP, pygame.K_w):
-                    member = (member + 2) % 3
-                    play_snd(SND_MENU)
-                if kc in (pygame.K_DOWN, pygame.K_s):
-                    member = (member + 1) % 3
-                    play_snd(SND_MENU)
-                gLobSelRow = team * 3 + member
-                if kc in (pygame.K_RETURN, pygame.K_z):
-                    # sit in this slot (yours or a bot's)
-                    if gLobStage == 1:
-                        if gKinds[gLobSelRow] == 0 or gLobSelRow == gMySlot:
-                            _lobby_sit_local(gLobSelRow)
-                            play_snd(SND_CONFIRM)
-                    else:
-                        _lobby_sit_net(gLobSelRow)
-                        play_snd(SND_CONFIRM)
-                if kc in (pygame.K_r, pygame.K_x):
-                    # toggle ready
-                    if gLobStage == 1:
-                        gLobReady[gMySlot] ^= 1
-                        play_snd(SND_MENU)
-                    else:
-                        _lobby_ready_net(gMySlot, 0 if gLobReady[gMySlot] else 1)
-                        gLobReady[gMySlot] ^= 1
-                        play_snd(SND_MENU)
-                if kc == pygame.K_c:
-                    msg("PERSONAJE: SELECCIONA DESDE EL MENU")
-                    play_snd(SND_MENU)
                 if kc == pygame.K_ESCAPE:
                     net_close()
                     gLocalHost = 0
@@ -6628,11 +6594,7 @@ def frame(clock=None, auto=0):
                     gAnnounceT = 3.0
                     host_announce()
 
-    # all ready -> start the match (host / local host / server)
-    if gSt == ST_LOBBY and gLobStage == 1 and gHosting and lobby_all_ready():
-        if gServerMode:
-            print("SERVER: match started")
-        lobby_start_match()
+    # Ready is only a status. The lobby creator launches explicitly.
 
     if gSt == ST_PLAY:
         if gSock is not None and not gHosting:
