@@ -76,7 +76,7 @@ def palette(pos):
                        ((value >> 10) & 31) * 8))
     return result
 
-def draw_tile(image, x0, y0, gfx, tile_index, colors, pal_index, xflip, yflip):
+def draw_tile(image, x0, y0, gfx, tile_index, colors, pal_index, xflip, yflip, transparent=False):
     base = tile_index * 32
     for y in range(8):
         row = 7 - y if yflip else y
@@ -88,7 +88,9 @@ def draw_tile(image, x0, y0, gfx, tile_index, colors, pal_index, xflip, yflip):
             bit = 7 - x if not xflip else x
             index = ((p0 >> bit) & 1) | (((p1 >> bit) & 1) << 1)
             index |= (((p2 >> bit) & 1) << 2) | (((p3 >> bit) & 1) << 3)
-            image.putpixel((x0 + x, y0 + y), colors[pal_index + index])
+            if not transparent or index != 0:
+                color = colors[pal_index + index]
+                image.putpixel((x0 + x, y0 + y), (*color, 255) if image.mode == "RGBA" else color)
 
 def extract(level_no, level_pos, title):
     width = rom[level_pos + 0x22] | (rom[level_pos + 0x23] << 8)
@@ -105,6 +107,7 @@ def extract(level_no, level_pos, title):
     tile_map = [struct.unpack_from("<H", rom, background + i * 2)[0] & 0xFF
                 for i in range(width * height)]
     image = Image.new("RGB", (width * 64, height * 64))
+    upper = Image.new("RGBA", (width * 64, height * 64), (0, 0, 0, 0))
     walk_blocks = bytearray(width * height)
     for my, meta in enumerate(tile_map):
         block = meta * 0x80
@@ -121,6 +124,10 @@ def extract(level_no, level_pos, title):
             # pair is empty; one traversable tile makes the block enterable.
             if collision_data[tile * 2] == 0 and collision_data[tile * 2 + 1] == 0:
                 walkable = True
+            if collision_data[tile * 2] & 1 and not (collision_data[tile * 2 + 1] & 1):
+                draw_tile(upper, (my % width) * 64 + (n % 8) * 8,
+                          (my // width) * 64 + (n // 8) * 8,
+                          gfx, tile, colors, pal_index, bool(attr & 0x40), bool(attr & 0x80), True)
         walk_blocks[my] = 1 if walkable else 0
     walk = bytearray()
     for by in range(height):
@@ -128,6 +135,7 @@ def extract(level_no, level_pos, title):
             for bx in range(width):
                 walk.extend([walk_blocks[by * width + bx]] * 4)
     image.save(OUT / f"level{level_no}_snes.png")
+    upper.save(OUT / f"level{level_no}_snes_upper.png")
     (OUT / f"walk{level_no}_snes.bin").write_bytes(walk)
     print(f"level {level_no}: {title}; {width}x{height} blocks; {image.size}; map16={len(map16)}")
 

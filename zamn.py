@@ -39,7 +39,7 @@ ASSETS = "/assets" if IS_WEB else os.path.join(os.path.dirname(os.path.abspath(_
 
 MODE_SP, MODE_TEAMS = 0, 1
 CTRL_LOCAL, CTRL_NET, CTRL_BOT = 0, 1, 2
-ST_MENU, ST_LOBBY, ST_OPTIONS, ST_PLAY, ST_PAUSE, ST_WIN, ST_GAMEOVER, ST_CREATOR, ST_PROFILE, ST_EDITOR, ST_GALLERY, ST_WEAPONS, ST_CHARACTERS = range(13)
+ST_MENU, ST_LOBBY, ST_OPTIONS, ST_PLAY, ST_PAUSE, ST_WIN, ST_GAMEOVER, ST_CREATOR, ST_PROFILE, ST_EDITOR, ST_GALLERY, ST_WEAPONS, ST_CHARACTERS, ST_WORLDS = range(14)
 
 TEAMCOL = [(110, 235, 70), (235, 70, 70), (90, 150, 255), (255, 220, 60)]
 TEAMNAME = ["GREEN", "RED", "BLUE", "YELLOW"]
@@ -114,6 +114,8 @@ WORLD_LAYOUT = [(VSPOTS_DAY, TSPAWN_DAY, MEDKITS_DAY), (VSPOTS2, TSPAWN2, MEDKIT
 WORLD_COUNT = len(WORLD_NAMES)
 BOUNCE_LAYOUT = [[(720, 320)], [(1480, 320)], [(720, 980)],
                  [(1480, 980)], [(720, 720)], [(1480, 720)]]
+gWorldEditSel = 5
+gWorldExpand = [0] * WORLD_COUNT
 
 # frame rects (mirror sprites.h, jitter-free recentered sheets)
 ZEKE_DOWN = [(86, 5, 16, 36), (108, 4, 16, 37), (128, 4, 16, 37), (148, 4, 16, 37)]
@@ -449,6 +451,7 @@ texLevel1 = texLevel2 = None
 gWalk1 = gWalk2 = None
 texWorlds = []
 walkWorlds = []
+upperWorlds = []
 
 gShowFps = 0
 gFpsDisp = 60.0
@@ -934,11 +937,17 @@ def build_world_variants():
         walkWorlds.append(walk)
 
 
+def world_upper():
+    if upperWorlds:
+        return upperWorlds[gLevelSel % len(upperWorlds)]
+    return None
+
+
 def load_assets():
     global texZeke, texJulie, texZombie, texVict, texItems, texDoor, texLevel, gWalk, texChars, texWeapons
     global texLevel1, texLevel2, texLevel3, texLevel4, texLevel5, texLevel6
     global gWalk1, gWalk2, gWalk3, gWalk4, gWalk5, gWalk6
-    global texZeke2, texJulie2, texZombie2, gAnimMul, texDrawn, gNeighborDrawn
+    global texZeke2, texJulie2, texZombie2, gAnimMul, texDrawn, gNeighborDrawn, upperWorlds
     texZeke = load_sheet("zeke.png", 1)
     texJulie = load_sheet("julie.png", 1)
     texZombie = load_sheet("zombie.png", 2)
@@ -975,6 +984,15 @@ def load_assets():
         worlds.append(load_world_file(i, *fallback1))
     texLevel1, texLevel2, texLevel3, texLevel4, texLevel5, texLevel6 = [w[0] for w in worlds]
     gWalk1, gWalk2, gWalk3, gWalk4, gWalk5, gWalk6 = [w[1] for w in worlds]
+    upperWorlds = []
+    for i in range(1, 7):
+        upper_path = os.path.join(ASSETS, "level%d_snes_upper.png" % i)
+        if os.path.exists(upper_path):
+            upper = pygame.image.load(upper_path).convert_alpha()
+            upper = pygame.transform.scale(upper, (MAP_W, MAP_H))
+        else:
+            upper = pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA)
+        upperWorlds.append(upper)
     build_world_variants()
     texLevel = texLevel1
     gWalk = gWalk1
@@ -1065,6 +1083,7 @@ TR = {
     "menu_creator": ["CREAR PERSONAJE", "CHARACTER CREATOR"],
     "menu_weapons": ["ARMAS", "WEAPONS"],
     "menu_characters": ["PERSONAJES", "CHARACTERS"],
+    "menu_worlds": ["MUNDOS", "WORLDS"],
     "lobby_join": ["UNIR", "JOIN"],
     "menu_profile": ["PERFIL", "PROFILE"],
     "menu_design": ["DISEÑAR", "DESIGN"],
@@ -3423,6 +3442,9 @@ def render_game():
             vbuf.fill(team_col, (sx - bar_w // 2 + 1, sy - 44, fill_w - 1, 3))
     for p in range(gNumPlayers):
         render_player(gP[p], p)
+    upper = world_upper()
+    if upper is not None:
+        vbuf.blit(upper, (0, 0), pygame.Rect(int(gCamX), int(gCamY), VIEW_W, VIEW_H))
     for i in range(MAX_BULLETS):
         b = gB[i]
         if not b.used:
@@ -3948,11 +3970,11 @@ def render_menu():
     draw_text_c(vbuf, VIEW_W // 2, 72, 1, (230, 210, 255),
                 tr("menu_sub_web") if IS_WEB else tr("menu_sub"))
     # main options panel
-    sc_panel(vbuf, (VIEW_W // 2 - 160, 76, 320, 174), (14, 8, 26), _gold, 10)
-    labels = [tr("menu_list"), tr("menu_create"), tr("menu_weapons"), tr("menu_characters"),
-              tr("menu_options"), tr("menu_design"), tr("menu_profile")]
-    for i in range(7):
-        y = 84 + i * 24
+    sc_panel(vbuf, (VIEW_W // 2 - 160, 76, 320, 190), (14, 8, 26), _gold, 10)
+    labels = [tr("menu_list"), tr("menu_create"), tr("menu_worlds"), tr("menu_weapons"),
+              tr("menu_characters"), tr("menu_options"), tr("menu_design"), tr("menu_profile")]
+    for i in range(8):
+        y = 82 + i * 21
         sc_row(VIEW_W // 2, y, 220, labels[i], i, i == gMenuIdx, 0.14, 2)
     # your custom character preview (right side)
     cp = tuple(gCust)
@@ -4239,6 +4261,78 @@ def render_options():
                 if on:
                     vbuf.fill((255, 210, 110), (VIEW_W // 2 - 108 + seg * 8, 82, 6, 5))
                     vbuf.fill((255, 240, 190), (VIEW_W // 2 - 108 + seg * 8, 82, 6, 2))
+
+
+_world_preview_cache = None
+_world_preview_key = None
+
+
+def world_editor_preview():
+    global _world_preview_cache, _world_preview_key
+    key = (gWorldEditSel, gWorldExpand[gWorldEditSel])
+    if _world_preview_cache is not None and _world_preview_key == key:
+        return _world_preview_cache
+    base = texWorlds[gWorldEditSel % len(texWorlds)] if texWorlds else texLevel1
+    extra = gWorldExpand[gWorldEditSel] * 128
+    if extra:
+        preview = pygame.Surface((base.get_width() + extra * 2, base.get_height()), pygame.SRCALPHA)
+        preview.fill((8, 5, 16, 255))
+        preview.blit(base, (extra, 0))
+    else:
+        preview = base
+    _world_preview_cache = preview
+    _world_preview_key = key
+    return preview
+
+
+def render_worlds():
+    render_bg_sc()
+    sc_title(VIEW_W // 2, 22, tr("menu_worlds"), (200, 160, 66), 3)
+    sc_panel(vbuf, (12, 44, 132, 174), (14, 8, 26), _gold, 8)
+    for i in range(WORLD_COUNT):
+        y = 52 + i * 25
+        selected = i == gWorldEditSel
+        if selected:
+            vbuf.fill((40, 25, 55), (20, y - 2, 116, 20))
+            pygame.draw.rect(vbuf, WORLD_TINT[i], (20, y - 2, 116, 20), 1)
+        draw_text(vbuf, 26, y + 3, 1,
+                  (255, 230, 120) if selected else (205, 198, 220),
+                  "%d. %s" % (i + 1, WORLD_NAMES[i][:15]))
+    sc_panel(vbuf, (156, 44, 312, 174), (14, 8, 26), WORLD_TINT[gWorldEditSel], 8)
+    preview = world_editor_preview()
+    pw, ph = preview.get_size()
+    scale = min(292.0 / pw, 132.0 / ph)
+    sw, sh = max(1, int(pw * scale)), max(1, int(ph * scale))
+    vbuf.blit(pygame.transform.scale(preview, (sw, sh)),
+              (166 + (292 - sw) // 2, 50 + (132 - sh) // 2))
+    draw_text(vbuf, 166, 188, 1, (255, 230, 120),
+              "EXPANSION LATERAL: %d" % gWorldExpand[gWorldEditSel])
+    for cx, label in ((220, "< EXPANDIR"), (330, "EXPANDIR >"), (430, tr("ed_back"))):
+        vbuf.fill((14, 8, 26), (cx - 46, 230, 92, 16))
+        pygame.draw.rect(vbuf, (200, 160, 66), (cx - 46, 230, 92, 16), 1)
+        draw_text_c(vbuf, cx, 232, 1, (255, 230, 120), label)
+
+
+def worlds_click(mx, my):
+    global gWorldEditSel, _world_preview_cache, _world_preview_key, gSt
+    for i in range(WORLD_COUNT):
+        y = 52 + i * 25
+        if 20 <= mx <= 136 and y - 2 <= my <= y + 18:
+            gWorldEditSel = i
+            _world_preview_cache = None
+            play_snd(SND_MENU)
+            return
+    if 174 <= mx <= 266 and 230 <= my <= 248:
+        gWorldExpand[gWorldEditSel] = max(0, gWorldExpand[gWorldEditSel] - 1)
+        _world_preview_cache = None
+        play_snd(SND_MENU)
+    elif 284 <= mx <= 376 and 230 <= my <= 248:
+        gWorldExpand[gWorldEditSel] = min(8, gWorldExpand[gWorldEditSel] + 1)
+        _world_preview_cache = None
+        play_snd(SND_MENU)
+    elif 384 <= mx <= 476 and 230 <= my <= 248:
+        gSt = ST_MENU
+        play_snd(SND_MENU)
 
 
 def mouse_vbuf():
@@ -5696,7 +5790,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v88")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v89")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6089,6 +6183,8 @@ def rerender_current():
         render_lobby()
     elif gSt == ST_OPTIONS:
         render_options()
+    elif gSt == ST_WORLDS:
+        render_worlds()
     elif gSt == ST_CREATOR:
         render_creator()
     elif gSt == ST_WIN:
@@ -6410,7 +6506,7 @@ def frame(clock=None, auto=0):
             gMouseX, gMouseY = ev.pos
             gMouseIn = True
             if gSt == ST_MENU:
-                i = hover_row(84, 24, 7, 110, 370)
+                i = hover_row(82, 21, 8, 110, 370)
                 if i >= 0 and i != gMenuIdx:
                     gMenuIdx = i
             elif gSt == ST_WEAPONS and not gWpnMenuLock:
@@ -6441,12 +6537,14 @@ def frame(clock=None, auto=0):
                 gMouseErase = False
                 mx, my = mouse_event_vbuf(ev.pos)
                 if gSt == ST_MENU:
-                    i = hover_row(84, 24, 7, 110, 370)
+                    i = hover_row(82, 21, 8, 110, 370)
                     if i >= 0:
                         gMenuIdx = i
                         menu_enter()
                 elif gSt == ST_OPTIONS:
                     options_click(mx, my)
+                elif gSt == ST_WORLDS:
+                    worlds_click(mx, my)
                 elif gSt == ST_LOBBY:
                     lobby_click(mx, my)
                 elif gSt == ST_CREATOR:
@@ -6515,10 +6613,10 @@ def frame(clock=None, auto=0):
             continue
         if gSt == ST_MENU:
             if kc in (pygame.K_UP, pygame.K_w):
-                gMenuIdx = (gMenuIdx + 6) % 7
+                gMenuIdx = (gMenuIdx + 7) % 8
                 play_snd(SND_MENU)
             if kc in (pygame.K_DOWN, pygame.K_s):
-                gMenuIdx = (gMenuIdx + 1) % 7
+                gMenuIdx = (gMenuIdx + 1) % 8
                 play_snd(SND_MENU)
             if kc in (pygame.K_RETURN, pygame.K_z, pygame.K_SPACE):
                 menu_enter()
