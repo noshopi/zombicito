@@ -269,6 +269,7 @@ async function pollLobbies() {
         window._lobbies = [];
     }
 }
+window._refreshLobbies = pollLobbies;
 setInterval(pollLobbies, 2000);
 pollLobbies();
 
@@ -425,10 +426,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=70")).text();
+            const src = await (await fetch(f + "?v=71")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=70")).text();
+        const shim = await (await fetch("pygame.py?v=71")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

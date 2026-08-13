@@ -1826,6 +1826,8 @@ def host_open_local():
     gHosting = 1
     gLocalHost = 1
     chat_add(90, tr("chat_welcome"))
+    if IS_WEB:
+        web_host_announce()
     return True
 
 
@@ -4306,7 +4308,7 @@ def render_console_overlay():
 
 
 def lobby_click(mx, my):
-    global gLobSel, gLobStage, gLobSelRow, gSt, gLocalSlot, gLobbyGot, gJoinReqT, gJoinStartT
+    global gLobSel, gLobStage, gLobSelRow, gLobCount, gSt, gLocalSlot, gLobbyGot, gJoinReqT, gJoinStartT
     global gChatTyping, gChatInput, gLevelSel, gBotEnabled
     if gLobStage == 3:
         for b, cx in ((0, 60), (1, 240), (2, 420)):
@@ -4316,7 +4318,13 @@ def lobby_click(mx, my):
                     gSt = ST_MENU
                 elif b == 1:
                     gLobCount = 0
-                    if not IS_WEB:
+                    if IS_WEB:
+                        try:
+                            from js import window
+                            window._refreshLobbies()
+                        except Exception:
+                            pass
+                    else:
                         net_browse_open()
                     play_snd(SND_MENU)
                 else:
@@ -5485,7 +5493,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v70")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v71")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -5598,6 +5606,40 @@ def render_editor():
     except Exception:
         pass
 
+    # ---- timeline (line + dots + playhead) ----
+    x0, y0, cw, ch = _ed_pad_rect()
+    tlx, tsp, tly = 54, 52, y0 + ch + 18
+    pygame.draw.line(vbuf, (60, 50, 80), (tlx - 20, tly), (tlx + 7 * tsp + 20, tly), 2)
+    for f in range(8):
+        pygame.draw.circle(vbuf, (60, 50, 80), (tlx + f * tsp, tly), 3)
+    tx = tlx + gEdFrame * tsp
+    pygame.draw.circle(vbuf, (200, 160, 66), (tx, tly), 7, 2)
+    pygame.draw.circle(vbuf, (255, 230, 120), (tx, tly), 2)
+    draw_text_c(vbuf, tx, tly + 10, 1, (255, 230, 120), "%d/8" % (gEdFrame + 1))
+    # ---- bottom buttons [VOLVER CLEAR GUARDAR GALERIA PREVIEW] ----
+    labels = {"back": tr("ed_back"), "clear": tr("ed_clear"), "save": tr("ed_save"),
+              "gallery": tr("ed_gallery"), "preview": tr("ed_preview")}
+    for name, cx, by in _ed_bottom_buttons():
+        w = 84
+        pressed = _ed_pressed(name)
+        draw_by = by + 2 if pressed else by
+        if pressed:
+            vbuf.fill((5, 3, 12), (cx - w // 2, by, w, 18))
+        fill = (70, 42, 78) if pressed else ((30, 18, 44) if name in ("back", "clear") else (14, 8, 26))
+        vbuf.fill(fill, (cx - w // 2, draw_by, w, 18))
+        pygame.draw.rect(vbuf, (255, 245, 160) if pressed else (200, 160, 66), (cx - w // 2, draw_by, w, 18), 1)
+        draw_text_c(vbuf, cx, draw_by + 2, 1, (255, 230, 120), labels[name])
+    if gEdFlashT > 0:
+        if gUpState == 1:
+            m = tr("ed_sending")
+        elif gUpState == 2:
+            m = tr("ed_saved_g")
+        elif gUpState == 3:
+            m = tr("ed_local")
+        else:
+            m = tr("ed_incomplete")
+        draw_text_c(vbuf, VIEW_W // 2, 118, 2, (120, 255, 160), m)
+
 
 def directory_poll():
     """Merge public relay lobbies into the native browser list."""
@@ -5652,40 +5694,6 @@ def web_host_announce():
         })
     except Exception:
         pass
-    # ---- timeline (line + dots + playhead) ----
-    x0, y0, cw, ch = _ed_pad_rect()
-    tlx, tsp, tly = 54, 52, y0 + ch + 18
-    pygame.draw.line(vbuf, (60, 50, 80), (tlx - 20, tly), (tlx + 7 * tsp + 20, tly), 2)
-    for f in range(8):
-        pygame.draw.circle(vbuf, (60, 50, 80), (tlx + f * tsp, tly), 3)
-    tx = tlx + gEdFrame * tsp
-    pygame.draw.circle(vbuf, (200, 160, 66), (tx, tly), 7, 2)
-    pygame.draw.circle(vbuf, (255, 230, 120), (tx, tly), 2)
-    draw_text_c(vbuf, tx, tly + 10, 1, (255, 230, 120), "%d/8" % (gEdFrame + 1))
-    # ---- bottom buttons [VOLVER CLEAR GUARDAR GALERIA PREVIEW] ----
-    labels = {"back": tr("ed_back"), "clear": tr("ed_clear"), "save": tr("ed_save"),
-              "gallery": tr("ed_gallery"), "preview": tr("ed_preview")}
-    for name, cx, by in _ed_bottom_buttons():
-        w = 84
-        pressed = _ed_pressed(name)
-        draw_by = by + 2 if pressed else by
-        if pressed:
-            vbuf.fill((5, 3, 12), (cx - w // 2, by, w, 18))
-        fill = (70, 42, 78) if pressed else ((30, 18, 44) if name in ("back", "clear") else (14, 8, 26))
-        vbuf.fill(fill, (cx - w // 2, draw_by, w, 18))
-        pygame.draw.rect(vbuf, (255, 245, 160) if pressed else (200, 160, 66), (cx - w // 2, draw_by, w, 18), 1)
-        draw_text_c(vbuf, cx, draw_by + 2, 1, (255, 230, 120), labels[name])
-    # flash message (saved / incomplete / etc.)
-    if gEdFlashT > 0:
-        if gUpState == 1:
-            m = tr("ed_sending")
-        elif gUpState == 2:
-            m = tr("ed_saved_g")
-        elif gUpState == 3:
-            m = tr("ed_local")
-        else:
-            m = tr("ed_incomplete")
-        draw_text_c(vbuf, VIEW_W // 2, 118, 2, (120, 255, 160), m)
 
 
 def render_gallery():
