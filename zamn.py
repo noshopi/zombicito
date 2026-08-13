@@ -4099,9 +4099,10 @@ def render_options():
     for i in range(7):
         sc_row(VIEW_W // 2, 68 + i * 26, 240, rows[i], i, i == gOptIdx or i == h, 0.12, 2)
         if i == 2:
-            # Side arrows belong exclusively to the volume control.
-            pygame.draw.polygon(vbuf, (200, 160, 66), [(24, 124), (44, 108), (44, 140)])
-            pygame.draw.polygon(vbuf, (200, 160, 66), [(456, 124), (436, 108), (436, 140)])
+            # Side arrows belong exclusively to the selected volume control.
+            if gOptIdx == 2:
+                pygame.draw.polygon(vbuf, (200, 160, 66), [(24, 124), (44, 108), (44, 140)])
+                pygame.draw.polygon(vbuf, (200, 160, 66), [(456, 124), (436, 108), (436, 140)])
             # volume bars
             for seg in range(8):
                 on = gVolume >= (seg + 1) * 12
@@ -5429,7 +5430,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v65")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v66")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
