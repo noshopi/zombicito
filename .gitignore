@@ -1,0 +1,28 @@
+# Local/runtime state
+.claude/
+__pycache__/
+*.log
+*.err
+*.tmp
+zamn.cfg
+tmp_upload.png
+
+# Generated screenshots and diagnostics
+shot_*.png
+shots_*.png
+frames_montage.png
+dbg_*.png
+g_*.txt
+br_*.txt
+srv*.txt
+
+# Build/download-heavy artifacts
+pipeline/node_modules/
+tools/SDL2-*/
+tools/w64devkit/
+ZombiesAteMyNeighbors.exe
+ZamnServer.exe
+
+# Local generated custom output
+ZamnNative/assets/custom_drawn.png
+ZamnNative/assets/custom_neighbor.png

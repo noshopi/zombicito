@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store">
+<meta http-equiv="Pragma" content="no-cache">
+<title>Zombicito - Edición Python</title>
+<style>
+    html, body {
+        margin: 0;
+        height: 100%;
+        background: #05030a;
+        overflow: hidden;
+    }
+    #wrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    canvas {
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        max-width: 100vw;
+        max-height: 100vh;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #05030a;
+    }
+    #back {
+        position: fixed;
+        top: 8px;
+        left: 10px;
+        z-index: 10;
+        pointer-events: none;
+        color: #7ddb4f;
+        font: 700 13px/1.4 "Segoe UI", system-ui, sans-serif;
+        text-decoration: none;
+        letter-spacing: 1px;
+        background: rgba(10, 6, 18, .75);
+        border: 1px solid #3a2352;
+        border-radius: 6px;
+        padding: 4px 10px;
+        user-select: none;
+        opacity: .6;
+    }
+    #back:hover { color: #a5f27a; }
+    #status {
+        position: fixed;
+        bottom: 8px;
+        left: 10px;
+        z-index: 10;
+        pointer-events: none;
+        color: #6f6286;
+        font: 12px/1.4 Consolas, monospace;
+        letter-spacing: 1px;
+    }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="1440" height="810"></canvas></div>
+<a id="back" href="../">&larr; VOLVER</a>
+<div id="status">cargando...</div>
+<script src="pyodide/pyodide.js"></script>
+<script src="game.js?v=61"></script>
+</body>
+</html>

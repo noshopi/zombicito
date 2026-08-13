@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zombicito — Edición Nativa</title>
+<style>
+    :root {
+        --blood: #e0314f;
+        --slime: #7ddb4f;
+        --dark: #0b0512;
+        --panel: #160b22;
+        --text: #e8e0f0;
+        --dim: #9a8bb0;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+            radial-gradient(ellipse at 50% -10%, #3a1652 0%, transparent 55%),
+            radial-gradient(ellipse at 85% 110%, #14320c 0%, transparent 50%),
+            var(--dark);
+        color: var(--text);
+        min-height: 100vh;
+        line-height: 1.55;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 24px 18px 60px; }
+    header { text-align: center; padding: 26px 0 8px; }
+    h1 {
+        font-size: clamp(34px, 6vw, 64px);
+        font-weight: 900;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--slime);
+        text-shadow: 0 3px 0 #1c4a10, 0 6px 22px rgba(125, 219, 79, .35);
+    }
+    h1 .blood { color: var(--blood); text-shadow: 0 3px 0 #5c0715, 0 6px 22px rgba(255, 51, 85, .45); }
+    .sub { margin-top: 6px; color: var(--dim); letter-spacing: 2px; font-size: 14px; text-transform: uppercase; }
+    .hero {
+        margin: 26px 0 8px;
+        border: 1px solid #3a2352;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 10px 50px rgba(0,0,0,.6);
+    }
+    .hero img { width: 100%; display: block; }
+    .tagline {
+        text-align: center;
+        font-size: clamp(15px, 2.4vw, 19px);
+        color: #d9c8f2;
+        max-width: 720px;
+        margin: 22px auto 10px;
+    }
+    .serverbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin: 18px 0 6px;
+    }
+    .chip {
+        background: var(--panel);
+        border: 1px solid #47306a;
+        border-radius: 999px;
+        padding: 7px 16px;
+        font-size: 13px;
+        color: var(--dim);
+    }
+    .chip b { color: var(--slime); font-weight: 700; }
+    h2 {
+        margin: 40px 0 14px;
+        font-size: 22px;
+        color: var(--slime);
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        border-bottom: 2px solid #2c1c44;
+        padding-bottom: 8px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    .card {
+        background: var(--panel);
+        border: 1px solid #33214d;
+        border-radius: 12px;
+        padding: 16px 18px;
+    }
+    .card h3 { color: #ffd678; font-size: 15px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+    .card p, .card li { color: #c9bcdd; font-size: 14px; }
+    .card ul { padding-left: 18px; }
+    .card li { margin: 4px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #2a1b40; color: #c9bcdd; }
+    th { color: var(--slime); text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
+    .dl {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 8px 0 4px;
+    }
+    .dl a, .btn {
+        display: inline-block;
+        background: linear-gradient(180deg, #2fae3d, #1c7a26);
+        color: #fff;
+        text-decoration: none;
+        font-weight: 700;
+        padding: 12px 22px;
+        border-radius: 10px;
+        border: 1px solid #4ed15e;
+        box-shadow: 0 4px 0 #12521b, 0 8px 20px rgba(30, 150, 50, .25);
+        font-size: 15px;
+    }
+    .dl a.alt { background: linear-gradient(180deg, #7a2e40, #57121f); border-color: #c04a62; box-shadow: 0 4px 0 #3a0c16, 0 8px 20px rgba(180, 30, 60, .25); }
+    .note {
+        margin-top: 14px;
+        background: #1d1226;
+        border-left: 4px solid #ffd678;
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 13.5px;
+        color: #c9bcdd;
+    }
+    .note b { color: #ffd678; }
+    footer { margin-top: 50px; text-align: center; color: #6f6286; font-size: 12.5px; }
+    kbd { background: #221336; border: 1px solid #47306a; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-family: Consolas, monospace; font-size: 12px; color: #d9c8f2; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <h1>Zombicito</h1>
+        <div class="sub">Zombicito &middot; Edición Nativa &middot; PC &middot; LAN &amp; Online</div>
+    </header>
+
+    <div class="hero"><img src="preview.png" alt="Mapa del Nivel 1 - Zombie Panic"></div>
+    <p class="tagline">Zombicito: el clásico de SNES renacido en C + SDL2, sin emulador. Un jugador por PC,
+    equipos de 2 contra la horda &mdash; o contra tus amigos.</p>
+
+    <div style="text-align:center; margin: 26px 0 6px;">
+        <a class="btn" style="font-size:20px; padding:16px 42px;" href="jugar/">▶ JUGAR AHORA</a>
+        <p style="margin-top:10px; color:#9a8bb0; font-size:13px;">La versión Python corriendo directo en el navegador &mdash; sin emulador, sin descargar nada</p>
+    </div>
+
+    <div class="serverbar">
+        <span class="chip">Servidor oficial <b>zombicito.duckdns.org:6969</b> (UDP)</span>
+        <span class="chip"><b>12</b> jugadores</span>
+        <span class="chip"><b>4</b> equipos de 3</span>
+        <span class="chip">Bots CPU</span>
+    </div>
+
+    <h2>Jugar Online</h2>
+    <div class="grid">
+        <div class="card">
+            <h3>1 &middot; Descargá</h3>
+            <p>El juego es un solo <b>.exe</b> (15 MB) con todo adentro &mdash; assets, sonido y SDL2 embebidos. Andá a la sección de descargas.</p>
+        </div>
+        <div class="card">
+            <h3>2 &middot; Abrí</h3>
+            <p>Al abrirlo <b>se autoconecta al servidor oficial</b> automáticamente. Si no hay red, tocá <kbd>Esc</kbd> y jugá solo o por LAN.</p>
+        </div>
+        <div class="card">
+            <h3>3 &middot; Jugá</h3>
+            <p>Rescatá vecinos antes que los zombies. El equipo con más rescates gana. Apretá a los rivales para <b>aturdirlos</b>.</p>
+        </div>
+    </div>
+
+    <h2>Características</h2>
+    <div class="grid">
+        <div class="card">
+            <h3>Multijugador</h3>
+            <ul>
+                <li>Servidor dedicado <b>zombicito.duckdns.org:6969</b></li>
+                <li>LAN: lobby público con detección automática de partidas</li>
+                <li>Lobby estilo StarCraft: elegís tu slot, equipo y personaje</li>
+                <li>Los bots llenan los lugares vacíos</li>
+                <li>Si alguien se desconecta, un bot toma su personaje</li>
+            </ul>
+        </div>
+        <div class="card">
+            <h3>Nivel 1 &mdash; "Zombie Panic"</h3>
+            <ul>
+                <li>Mapa 1.5x (2112x1248), 100% conectado</li>
+                <li>Colisión generada automáticamente del arte</li>
+                <li>Los zombies salen de las yardas de las casas</li>
+                <li>8 botiquines que reaparecen cada 25 s</li>
+                <li>Aparición de cada equipo frente a su casa</li>
+            </ul>
+        </div>
+        <div class="card">
+            <h3>Técnica</h3>
+            <ul>
+                <li>Recreación nativa en C (GCC) + SDL2</li>
+                <li>Viewport pixel-art 480x270, escalado 3x</li>
+                <li>Sprites originales de SNES recortados del rip</li>
+                <li>Bots con pathfinding BFS</li>
+                <li>SFX retro sintetizados al vuelo</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>Controles</h2>
+    <table>
+        <tr><th>Acción</th><th>Teclas</th><th>Gamepad</th></tr>
+        <tr><td>Mover</td><td><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> o <kbd>WASD</kbd></td><td>Stick / D-pad</td></tr>
+        <tr><td>Disparar</td><td><kbd>Z</kbd>, <kbd>Espacio</kbd> o <kbd>F</kbd></td><td><kbd>A</kbd> / <kbd>X</kbd></td></tr>
+        <tr><td>Pausa / salir</td><td><kbd>Esc</kbd></td><td>Start</td></tr>
+    </table>
+
+    <h2>Descargas</h2>
+    <div class="dl">
+        <a href="../ZombiesAteMyNeighbors.exe" download>Juego &mdash; Zombicito.exe</a>
+        <a class="alt" href="../ZamnServer.exe" download>Servidor &mdash; Zombicito Server.exe</a>
+    </div>
+    <div class="note">
+        <b>Nota:</b> para jugar online, el servidor debe estar corriendo en alguna PC con
+        <b>UDP 6969</b> reenviado en el router. Esta página se sirve desde
+        <b>http://zombicito.duckdns.org:7070/</b> (TCP 7070) con un puerto propio
+        para no chocar con las otras apps de la red. En la carpeta del proyecto,
+        <b>start_server.ps1</b> actualiza el DNS de zombicito.duckdns.org con la IP
+        pública automáticamente y levanta el servidor del juego y esta página.
+    </div>
+
+    <footer>
+        Zombicito &mdash; proyecto de estudio y recreación independiente.<br>
+        Página servida desde <b>zombicito.duckdns.org</b> &middot; Edición Nativa en C + SDL2
+    </footer>
+</div>
+</body>
+</html>
+

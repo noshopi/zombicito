@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zombies Ate My Neighbors</title>
+<style>
+    :root {
+        --blood: #a3122e;
+        --slime: #7ddb4f;
+        --purple: #2a0e3a;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        height: 100%;
+        background: #0b0512;
+        color: #e8e0f0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        overflow: hidden;
+    }
+    body {
+        display: flex;
+        flex-direction: column;
+        background:
+            radial-gradient(ellipse at 50% -20%, #3a1652 0%, transparent 60%),
+            radial-gradient(ellipse at 80% 110%, #14320c 0%, transparent 55%),
+            #0b0512;
+    }
+    header {
+        flex: 0 0 auto;
+        text-align: center;
+        padding: 10px 16px 8px;
+        user-select: none;
+    }
+    header h1 {
+        font-size: clamp(18px, 3.2vw, 34px);
+        font-weight: 900;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--slime);
+        text-shadow:
+            0 2px 0 #1c4a10,
+            0 4px 14px rgba(125, 219, 79, .35);
+    }
+    header h1 .blood {
+        color: #ff3355;
+        text-shadow: 0 2px 0 #5c0715, 0 4px 14px rgba(255, 51, 85, .4);
+    }
+    header p {
+        margin-top: 2px;
+        font-size: 12px;
+        color: #9a8bb0;
+        letter-spacing: 1px;
+    }
+    .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        max-width: 900px;
+        margin: 0 auto 10px;
+        padding: 6px 10px;
+        background: #160b22;
+        border: 1px solid #3a2352;
+        border-radius: 8px;
+        font-size: 12px;
+    }
+    .backlink {
+        color: #7ddb4f;
+        text-decoration: none;
+        font-weight: 700;
+        letter-spacing: 1px;
+    }
+    .backlink:hover { color: #a5f27a; }
+    .badge {
+        color: #ffd678;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+    #stage {
+        flex: 1 1 auto;
+        position: relative;
+        margin: 0 14px 8px;
+        border: 1px solid #3a2352;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 0 40px rgba(0,0,0,.6), inset 0 0 60px rgba(0,0,0,.5);
+        background: #000;
+    }
+    #game { width: 100%; height: 100%; }
+    footer {
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: center;
+        gap: 22px;
+        padding: 6px 10px 10px;
+        font-size: 11.5px;
+        color: #8d7fa5;
+        user-select: none;
+        flex-wrap: wrap;
+    }
+    footer b { color: #cbbde0; font-weight: 600; }
+    kbd {
+        background: #221336;
+        border: 1px solid #47306a;
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-family: Consolas, monospace;
+        font-size: 11px;
+        color: #d9c8f2;
+    }
+</style>
+</head>
+<body>
+<header>
+    <div class="topbar">
+        <a class="backlink" href="../">&larr; VOLVER A LA PAGINA</a>
+        <span class="badge">JUGANDO AHORA &middot; SNES EN EL NAVEGADOR</span>
+    </div>
+    <h1>Zombies <span class="blood">Ate</span> My Neighbors</h1>
+    <p>ENHANCED EDITION &mdash; 4&times; upscaled &middot; save states &middot; gamepad ready</p>
+</header>
+<div id="stage"><div id="game"></div></div>
+<footer>
+    <span><b>Move</b> <kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></span>
+    <span><b>Fire</b> <kbd>Z</kbd></span>
+    <span><b>Cycle weapon</b> <kbd>A</kbd>/<kbd>S</kbd></span>
+    <span><b>Cycle item</b> <kbd>Q</kbd>/<kbd>W</kbd> &middot; <b>Use item</b> <kbd>X</kbd></span>
+    <span><b>Start</b> <kbd>Enter</kbd></span>
+    <span><b>Save/Load state</b> <kbd>Shift</kbd>+<kbd>F2</kbd> / <kbd>F4</kbd></span>
+    <span><b>Graphics menu</b> &#9881; icon in player bar</span>
+</footer>
+<script>
+    window.addEventListener("error", e => console.log("[APP ERROR]", e.message, e.filename, e.lineno));
+    window.addEventListener("unhandledrejection", e => console.log("[APP REJECTION]", (e.reason && (e.reason.stack || e.reason.message)) || String(e.reason)));
+    EJS_player = "#game";
+    EJS_core = "snes9x";
+    EJS_gameName = "Zombies Ate My Neighbors";
+    EJS_gameUrl = "rom/zamn.sfc";
+    EJS_pathtodata = "data/";
+    EJS_startOnLoaded = true;
+    EJS_backgroundColor = "#000000";
+    EJS_defaultOptions = {
+        "shader": "4xScaleHQ.glslp",
+        "save-state-slot": "1",
+        "save-state-location": "browser"
+    };
+    // SNES pad mapped for ZAMN: Y=fire, B=jump/use, X/A=cycle items, L/R=cycle weapons
+    EJS_defaultControls = {
+        0: {
+            0: { value: "x",     value2: "BUTTON_2" }, // B (use item)
+            1: { value: "z",     value2: "BUTTON_4" }, // Y (fire weapon)
+            2: { value: "shift", value2: "SELECT" },
+            3: { value: "enter", value2: "START" },
+            4: { value: "up arrow",    value2: "DPAD_UP" },
+            5: { value: "down arrow",  value2: "DPAD_DOWN" },
+            6: { value: "left arrow",  value2: "DPAD_LEFT" },
+            7: { value: "right arrow", value2: "DPAD_RIGHT" },
+            8: { value: "w", value2: "BUTTON_1" },  // A (cycle item fwd)
+            9: { value: "q", value2: "BUTTON_3" },  // X (cycle item back)
+            10: { value: "a", value2: "LEFT_TOP_SHOULDER" },  // L (cycle weapon back)
+            11: { value: "s", value2: "RIGHT_TOP_SHOULDER" }, // R (cycle weapon fwd)
+        },
+        1: {}, 2: {}, 3: {}  // required: this build iterates all 4 players
+    };
+</script>
+<script src="data/loader.js"></script>
+</body>
+</html>
