@@ -871,7 +871,7 @@ def load_sheet(name, key_mode):
     return surf
 
 
-def expand_world(tex, walk):
+def expand_world(tex, walk, connect=True):
     """Scale a world and its walk mask together, preserving pixel collisions."""
     source_tw = max(1, tex.get_width() // TS)
     source_th = max(1, tex.get_height() // TS)
@@ -885,7 +885,7 @@ def expand_world(tex, walk):
         for tx in range(TW):
             sx = min(source_tw - 1, int(tx * source_tw / TW))
             expanded[ty * TW + tx] = walk[sy * source_tw + sx]
-    return tex, connect_walk_regions(expanded)
+    return tex, connect_walk_regions(expanded) if connect else expanded
 
 
 def connect_walk_regions(mask):
@@ -923,18 +923,11 @@ def connect_walk_regions(mask):
 
 def build_world_variants():
     global texWorlds, walkWorlds
-    bases = [texLevel1, texLevel2, texLevel1, texLevel2, texLevel1, texLevel2]
-    walks = [gWalk1, gWalk2, gWalk1, gWalk2, gWalk1, gWalk2]
-    tints = [None, None, (190, 105, 45), (35, 125, 145), (115, 65, 170), (155, 45, 65)]
+    bases = [texLevel1, texLevel2, texLevel3, texLevel4, texLevel5, texLevel6]
+    walks = [gWalk1, gWalk2, gWalk3, gWalk4, gWalk5, gWalk6]
     texWorlds, walkWorlds = [], []
-    for base, walk, tint in zip(bases, walks, tints):
-        variant = base
-        if tint is not None:
-            variant = base.copy()
-            wash = pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA)
-            wash.fill((tint[0], tint[1], tint[2], 42))
-            variant.blit(wash, (0, 0))
-        texWorlds.append(variant)
+    for base, walk in zip(bases, walks):
+        texWorlds.append(base)
         walkWorlds.append(walk)
 
 
@@ -973,7 +966,7 @@ def load_assets():
             image = pygame.image.load(image_path).convert()
             with open(walk_path, "rb") as f:
                 walk = bytearray(f.read())
-            return expand_world(image, walk)
+            return expand_world(image, walk, connect=False)
         return fallback_image, fallback_walk
 
     base_image = pygame.image.load(os.path.join(ASSETS, "level_big.png")).convert()

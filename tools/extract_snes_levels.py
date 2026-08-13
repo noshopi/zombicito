@@ -11,12 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ROM = ROOT / "ZombiesApp" / "rom" / "zamn.sfc"
 OUT = ROOT / "ZamnNative" / "assets"
 LEVELS = [
-    (1, 0xF8072, "Weird Kids on the Block"),
-    (2, 0xF826D, "Mushroom Men"),
-    (3, 0xF83DA, "Day of the Tentacle"),
-    (4, 0xF85C9, "Super Fund Cleanup Site"),
-    (5, 0xF87C9, "Toxic Terrors"),
-    (6, 0xF8965, "Ants"),
+    (1, 0xF9060, "Zombie Panic"),
+    (2, 0xF8072, "Weird Kids on the Block"),
+    (3, 0xF826D, "Mushroom Men"),
+    (4, 0xF83DA, "Day of the Tentacle"),
+    (5, 0xF85C9, "Super Fund Cleanup Site"),
+    (6, 0xF87C9, "Toxic Terrors"),
 ]
 
 rom = ROM.read_bytes()
@@ -108,10 +108,10 @@ def extract(level_no, level_pos, title):
                 for i in range(width * height)]
     image = Image.new("RGB", (width * 64, height * 64))
     upper = Image.new("RGBA", (width * 64, height * 64), (0, 0, 0, 0))
-    walk_blocks = bytearray(width * height)
+    block_masks = []
     for my, meta in enumerate(tile_map):
         block = meta * 0x80
-        walkable = False
+        block_walk = bytearray([1] * 16)
         for n in range(64):
             tile = map16[block + n * 2]
             attr = map16[block + n * 2 + 1]
@@ -120,20 +120,37 @@ def extract(level_no, level_pos, title):
             draw_tile(image, (my % width) * 64 + (n % 8) * 8,
                       (my // width) * 64 + (n // 8) * 8,
                       gfx, tile, colors, pal_index, bool(attr & 0x40), bool(attr & 0x80))
-            # The editor marks a map16 tile as traversable when its collision
-            # pair is empty; one traversable tile makes the block enterable.
-            if collision_data[tile * 2] == 0 and collision_data[tile * 2 + 1] == 0:
-                walkable = True
+            # The collision table marks the solid/priority tile pairs used by
+            # the SNES map16 data. Build four real 16x16 collision cells per
+            # 64x64 block instead of treating the whole block as one cell.
+            cell = ((n // 8) // 2) * 4 + ((n % 8) // 2)
+            if collision_data[tile * 2] != 0 or collision_data[tile * 2 + 1] != 0:
+                block_walk[cell] = 0
             if collision_data[tile * 2] & 1 and not (collision_data[tile * 2 + 1] & 1):
                 draw_tile(upper, (my % width) * 64 + (n % 8) * 8,
                           (my // width) * 64 + (n // 8) * 8,
                           gfx, tile, colors, pal_index, bool(attr & 0x40), bool(attr & 0x80), True)
-        walk_blocks[my] = 1 if walkable else 0
+        for row in range(4):
+            for col in range(4):
+                cell = row * 4 + col
+                walkable = not bool(block_walk[cell])
+                px0 = (my % width) * 64 + col * 16
+                py0 = (my // width) * 64 + row * 16
+                blue = 0
+                for yy in range(py0, py0 + 16):
+                    for xx in range(px0, px0 + 16):
+                        r, g, b = image.getpixel((xx, yy))
+                        if b > 120 and b > g * 1.35 and r < 100:
+                            blue += 1
+                if blue > 32:
+                    walkable = False
+                block_walk[cell] = 1 if walkable else 0
+        block_masks.append(block_walk)
     walk = bytearray()
     for by in range(height):
-        for sy in range(4):
+        for row in range(4):
             for bx in range(width):
-                walk.extend([walk_blocks[by * width + bx]] * 4)
+                walk.extend(block_masks[by * width + bx][row * 4:(row + 1) * 4])
     image.save(OUT / f"level{level_no}_snes.png")
     upper.save(OUT / f"level{level_no}_snes_upper.png")
     (OUT / f"walk{level_no}_snes.bin").write_bytes(walk)
