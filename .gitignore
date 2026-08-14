@@ -27,3 +27,4 @@ ZamnServer.exe
 ZamnNative/assets/custom_drawn.png
 ZamnNative/assets/custom_neighbor.png
 auth_users.json
+duckdns_token.txt

@@ -6503,6 +6503,7 @@ def web_apply_inputs(state):
 def web_lobby_sync():
     """Synchronize a browser lobby through the HTTP directory relay."""
     global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar, gChatLines, gSt, gNetStarted
+    global gWebLobbyId, gLobStage
     global gWebOwner, gWebOwnerSlot, gIsLeader, gWebGoneT
     if not IS_WEB or not gWebLobbyId:
         return
