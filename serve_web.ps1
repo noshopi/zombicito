@@ -34,7 +34,7 @@ try { $listener.Start() }
 catch { Write-Host "Could not bind port $Port (is it in use?)."; exit 1 }
 
 # lobby directory relay: game servers POST their status, browsers GET the list
-$script:Lobbies = @()
+$script:Lobbies = @{}   # keyed: web -> "web-<userId>", native -> "host|name"
 
 # global design gallery: players upload finished pixel-art characters
 $designsDir = Join-Path $root "designs"
@@ -212,53 +212,48 @@ while ($true) {
                 $body = $head.Substring($bi + 4)
                 try {
                     $o = $body | ConvertFrom-Json
-                    $same = if ([string]$o.host -like "web-*") {
-                        @($script:Lobbies | Where-Object { $_.host -eq $o.host })
-                    } else {
-                        @($script:Lobbies | Where-Object { $_.name -eq $o.name -and $_.host -eq $o.host })
-                    }
-                    $old = $same
+                    $hostId = [string]$o.host
+                    $key = if ($hostId -like "web-*") { $hostId } else { $hostId + "|" + [string]$o.name }
+                    $old = if ($script:Lobbies.ContainsKey($key)) { $script:Lobbies[$key] } else { $null }
                     $clients = @{}
                     if ($o.clients) {
                         foreach ($prop in $o.clients.psobject.Properties) {
                             $clients[$prop.Name] = [int]$prop.Value
                         }
                     }
-                    if ($old.Count -gt 0 -and $old[0].clients) {
-                        foreach ($prop in $old[0].clients.GetEnumerator()) {
+                    if ($null -ne $old -and $old.clients) {
+                        foreach ($prop in $old.clients.GetEnumerator()) {
                             if (-not $clients.ContainsKey([string]$prop.Key)) {
                                 $clients[[string]$prop.Key] = [int]$prop.Value
                             }
                         }
                     }
-                    $revision = if ($old.Count -gt 0) { [int]$old[0].revision } else { 0 }
-                    $chat = if ($old.Count -gt 0) { @($old[0].chat) } else { @() }
+                    $revision = if ($null -ne $old) { [int]$old.revision } else { 0 }
+                    $chat = if ($null -ne $old) { @($old.chat) } else { @() }
+                    $snap = if ($null -ne $old) { [string]$old.snap } else { "" }
+                    $inputs = if ($null -ne $old) { $old.inputs } else { @{} }
                     $kinds = @($o.kinds); $bots = @($o.bots); $ready = @($o.ready)
                     while ($kinds.Count -lt [int]$o.slots) { $kinds += 0 }
                     while ($bots.Count -lt [int]$o.slots) { $bots += 0 }
                     while ($ready.Count -lt [int]$o.slots) { $ready += 1 }
-                    if ($old.Count -gt 0 -and $old[0].clients) {
-                        foreach ($prop in $old[0].clients.GetEnumerator()) {
+                    if ($null -ne $old -and $old.clients) {
+                        foreach ($prop in $old.clients.GetEnumerator()) {
                             $slot = [int]$prop.Value
                             if ($slot -ge 0 -and $slot -lt $kinds.Count) {
-                                $kinds[$slot] = [int]$old[0].kinds[$slot]
+                                $kinds[$slot] = [int]$old.kinds[$slot]
                                 $bots[$slot] = 0
-                                $ready[$slot] = [int]$old[0].ready[$slot]
+                                $ready[$slot] = [int]$old.ready[$slot]
                             }
                         }
                     }
-                    if ([string]$o.host -like "web-*") {
-                        $script:Lobbies = @($script:Lobbies | Where-Object { $_.host -ne $o.host })
-                    } else {
-                        $script:Lobbies = @($script:Lobbies | Where-Object { -not ($_.name -eq $o.name -and $_.host -eq $o.host) })
-                    }
-                    $script:Lobbies += @{ name = [string]$o.name; host = [string]$o.host; region = [int]$o.region;
-                                          filled = [int]$o.filled; slots = [int]$o.slots;
-                                          world = [int]$o.world;
-                                          started = [int]$o.started; owner = [string]$o.owner;
-                                          kinds = $kinds; bots = $bots; teams = @($o.teams);
-                                          chars = @($o.chars); ready = $ready;
-                                          clients = $clients; requests = @(); chat = $chat; revision = $revision; t = Get-Date }
+                    $script:Lobbies[$key] = @{ name = [string]$o.name; host = $hostId; region = [int]$o.region;
+                                               filled = [int]$o.filled; slots = [int]$o.slots;
+                                               world = [int]$o.world;
+                                               started = [int]$o.started; owner = [string]$o.owner;
+                                               kinds = $kinds; bots = $bots; teams = @($o.teams);
+                                               chars = @($o.chars); ready = $ready;
+                                               clients = $clients; requests = @(); chat = $chat; snap = $snap;
+                                               inputs = $inputs; revision = $revision; t = Get-Date }
                 } catch {}
             }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
@@ -266,8 +261,10 @@ while ($true) {
             $status = "200 OK"
             $handled = $true
         } elseif ($url -eq "/api/lobbies") {
-            $script:Lobbies = @($script:Lobbies | Where-Object { ((Get-Date) - $_.t).TotalSeconds -lt 8 })
-            $list = @($script:Lobbies | ForEach-Object {
+            foreach ($key in @($script:Lobbies.Keys)) {
+                if (((Get-Date) - $script:Lobbies[$key].t).TotalSeconds -ge 8) { $script:Lobbies.Remove($key) }
+            }
+            $list = @($script:Lobbies.Values | ForEach-Object {
                 $details = @()
                 $n = if ($_.kinds) { @($_.kinds).Count } else { 0 }
                 for ($i = 0; $i -lt $n; $i++) {
@@ -343,13 +340,15 @@ while ($true) {
             try {
                 $bi = $head.IndexOf("`r`n`r`n")
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
-                $l = @($script:Lobbies | Where-Object { $_.host -eq [string]$o.host })[0]
+                $hostId = [string]$o.host
+                $l = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
                 if ($null -ne $l -and [string]$o.client -ne "") {
                     if ($null -eq $l.clients) { $l.clients = @{} }
                     if ($null -eq $l.kinds) { $l.kinds = @(0..([int]$l.slots - 1) | ForEach-Object { 0 }) }
-                    if ($null -eq $l.bots) { $l.bots = @(0..([int]$l.slots - 1) | ForEach-Object { 1 }) }
-                    if ($null -eq $l.ready) { $l.ready = @(0..([int]$l.slots - 1) | ForEach-Object { 1 }) }
+                    if ($null -eq $l.bots) { $l.bots = @(0..([int]$l.slots - 1) | ForEach-Object { 0 }) }
+                    if ($null -eq $l.ready) { $l.ready = @(0..([int]$l.slots - 1) | ForEach-Object { 0 }) }
                     if ($null -eq $l.chat) { $l.chat = @() }
+                    if ($null -eq $l.inputs) { $l.inputs = @{} }
                     $kinds = @($l.kinds); $bots = @($l.bots); $ready = @($l.ready)
                     while ($kinds.Count -lt [int]$l.slots) { $kinds += 0 }
                     while ($bots.Count -lt [int]$l.slots) { $bots += 0 }
@@ -358,19 +357,22 @@ while ($true) {
                     $action = [string]$o.action
                     $slot = -1
                     if ($l.clients.ContainsKey($client)) { $slot = [int]$l.clients[$client] }
-                    if ($action -eq "chat" -and [string]$o.text -ne "") {
+                    if ($action -eq "snap") {
+                        $l.snap = [string]$o.snap
+                        $l.started = [int]$o.started
+                        $l.revision = [int]$l.revision + 1
+                        $ok2 = $true
+                    } elseif ($action -eq "input") {
+                        $l.inputs[$client] = [int]$o.slot
+                        $ok2 = $true
+                    } elseif ($action -eq "chat" -and [string]$o.text -ne "") {
                         $l.chat += @{ client = $client; text = ([string]$o.text).Substring(0, [Math]::Min(80, ([string]$o.text).Length)) }
                         if ($l.chat.Count -gt 40) { $l.chat = @($l.chat | Select-Object -Last 40) }
                         $l.revision = [int]$l.revision + 1
                         $ok2 = $true
                     } elseif ($action -eq "join" -and $slot -lt 0) {
                         for ($i = 0; $i -lt [int]$l.slots; $i++) {
-                            if ([int]$kinds[$i] -eq 0 -and [int]$bots[$i] -eq 0) { $slot = $i; break }
-                        }
-                        if ($slot -lt 0) {
-                            for ($i = 0; $i -lt [int]$l.slots; $i++) {
-                                if ([int]$kinds[$i] -eq 0) { $slot = $i; break }
-                            }
+                            if ([int]$kinds[$i] -eq 0) { $slot = $i; break }
                         }
                         if ($slot -ge 0) {
                             $humanNo = 2 + [int]$l.clients.Count
@@ -413,7 +415,7 @@ while ($true) {
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -like "/api/lobbies/state/*") {
             $hostId = [Uri]::UnescapeDataString($url.Substring("/api/lobbies/state/".Length))
-            $l = @($script:Lobbies | Where-Object { $_.host -eq $hostId })[0]
+            $l = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
             if ($null -ne $l) {
                 $json = $l | ConvertTo-Json -Compress -Depth 6
                 $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)

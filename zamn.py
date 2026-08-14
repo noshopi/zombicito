@@ -2170,7 +2170,7 @@ def host_poll():
                             pass
 
 
-def host_send_snapshot():
+def build_snapshot_data():
     pl = []
     for i in range(gNumPlayers):
         P = gP[i]
@@ -2208,11 +2208,15 @@ def host_send_snapshot():
             med |= 1 << m
     msg_bytes = gMsg.encode("latin1", "replace")[:40]
     msg_bytes = msg_bytes.ljust(40, b"\0")
-    data = PACK_SNAP.pack(4, gNetPhase, gTeamCount, gNumPlayers,
+    return PACK_SNAP.pack(4, gNetPhase, gTeamCount, gNumPlayers,
                           gRescued, gEaten, gNumVictims, med,
                           gTeam[0].rescues, gTeam[1].rescues, gTeam[2].rescues, gTeam[3].rescues,
                           gTeam[0].score, gTeam[1].score, gTeam[2].score, gTeam[3].score,
                           *pl, *zb, *bl, *vc, *fx, *snd, msg_bytes, 1 if gMsgT > 0 else 0)
+
+
+def host_send_snapshot():
+    data = build_snapshot_data()
     for i in range(MAX_PLAYERS):
         if gClientKnown[i]:
             try:
@@ -3761,6 +3765,8 @@ def lobby_start_match():
     gNetStarted = 1
     if gSock is not None:
         host_broadcast_lobby()
+    if IS_WEB:
+        web_host_announce()
     gLocalSlot = gMySlot
     game_reset(MODE_TEAMS, 0)
     gSt = ST_PLAY
@@ -3775,6 +3781,9 @@ def _web_lobby_ingest():
         gLobCount = 0
         for i in range(min(n, MAX_LOBBIES)):
             o = arr[i]
+            host = str(o.host) or ""
+            if not host.startswith("web-"):
+                continue
             e = gLobList[gLobCount]
             e.name = str(o.name) or "?"
             e.host = str(o.host) or ""
@@ -4781,6 +4790,9 @@ def lobby_connect_ip():
 
 def web_join_lobby(host):
     global gWebLobbyId, gLobStage, gLobbyGot, gMySlot, gLocalSlot, gHosting
+    if not host.startswith("web-"):
+        msg("LOBBY NATIVO NO DISPONIBLE EN WEB")
+        return
     gWebLobbyId = host
     gHosting = 0
     gLobStage = 2
@@ -5929,7 +5941,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v95")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v96")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6145,12 +6157,58 @@ def web_host_announce():
         pass
 
 
-def web_lobby_sync():
-    """Synchronize a browser lobby through the HTTP directory relay."""
-    global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar, gChatLines
+def web_host_snapshot():
+    """Publish the authoritative match state for web clients."""
     if not IS_WEB or not gWebLobbyId:
         return
     try:
+        import base64 as _b64
+        from js import window
+        data = build_snapshot_data()
+        window._webLobbyAction(gWebLobbyId, "snap", 0, 0,
+                               _b64.b64encode(data).decode("ascii"))
+    except Exception:
+        pass
+
+
+def web_send_input():
+    if not IS_WEB or not gWebLobbyId:
+        return
+    try:
+        from js import window
+        ix, iy, fire = read_local_input()
+        window._webLobbyAction(gWebLobbyId, "input", pack_buttons(ix, iy, fire), 0, "")
+    except Exception:
+        pass
+
+
+def web_apply_inputs(state):
+    """Host side: apply remote inputs arriving through the relay."""
+    if gSock is not None:
+        return
+    try:
+        inputs = getattr(state, "inputs", None)
+        if inputs is None:
+            return
+        clients = getattr(state, "clients", None)
+        if clients is None:
+            return
+        for client in inputs:
+            slot = int(clients[client])
+            if 0 <= slot < MAX_PLAYERS:
+                gP[slot].netButtons = int(inputs[client])
+                gP[slot].netLastT = gNetTime
+    except Exception:
+        pass
+
+
+def web_lobby_sync():
+    """Synchronize a browser lobby through the HTTP directory relay."""
+    global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar, gChatLines, gSt, gNetStarted
+    if not IS_WEB or not gWebLobbyId:
+        return
+    try:
+        import base64 as _b64
         from js import window
         window._pollWebLobby(gWebLobbyId)
         state = window._webLobbyState
@@ -6185,6 +6243,23 @@ def web_lobby_sync():
                     except Exception:
                         chat_slot = 90
                 chat_add(chat_slot, str(getattr(item, "text", "")))
+        started = int(getattr(state, "started", 0) or 0)
+        snap = str(getattr(state, "snap", "") or "")
+        world = int(getattr(state, "world", 0) or 0)
+        if world != gLevelSel and not gHosting:
+            gLevelSel = world % WORLD_COUNT
+            texLevel, gWalk = world_texture()
+        if gHosting:
+            web_apply_inputs(state)
+            return
+        if started and gSt == ST_LOBBY:
+            client_setup()
+            gSt = ST_PLAY
+        if snap and gSt == ST_PLAY:
+            try:
+                client_apply_snapshot(_b64.b64decode(snap))
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -7222,10 +7297,30 @@ def frame(clock=None, auto=0):
             gWebSyncT = 0.35
             web_lobby_sync()
 
+    # Web match transport: host publishes snapshots, clients send inputs.
+    if IS_WEB and gSt == ST_PLAY:
+        if gHosting:
+            gSnapT -= dt
+            if gSnapT <= 0:
+                gSnapT = 0.15
+                web_host_snapshot()
+        else:
+            gWebSyncT -= dt
+            if gWebSyncT <= 0:
+                gWebSyncT = 0.12
+                web_lobby_sync()
+                web_send_input()
+
     # Ready is only a status. The lobby creator launches explicitly.
 
     if gSt == ST_PLAY:
-        if gSock is not None and not gHosting:
+        if IS_WEB and not gHosting:
+            if gNetPhase == 2:
+                gSt = ST_WIN
+            for f in gFx:
+                if f.used:
+                    f.t += dt * 0.5
+        elif gSock is not None and not gHosting:
             ix, iy, fire = read_local_input()
             gInputSeq = (gInputSeq + 1) & 0xFF
             try:
