@@ -123,7 +123,12 @@ Write-Host ""
 
 while ($true) {
     $client = $null
-    try { $client = $listener.AcceptTcpClient() } catch { break }
+    try { $client = $listener.AcceptTcpClient() }
+    catch {
+        Start-Sleep -Milliseconds 200
+        if ($listener.Server -eq $null -or $listener.Server.IsBound -eq $false) { break }
+        continue
+    }
     try {
         $stream = $client.GetStream()
         $stream.ReadTimeout = 5000
@@ -746,7 +751,6 @@ while ($true) {
             }
         }
         $resp = "HTTP/1.1 $status`r`nContent-Type: $ct`r`nContent-Length: $($bytes.Length)`r`nCache-Control: no-store`r`nPragma: no-cache`r`n" + $extraHeaders + "Connection: close`r`n`r`n"
-        Write-Host ("[REQ] " + $method + " " + $url + " -> " + $status + " " + $bytes.Length)
         $respBytes = [System.Text.Encoding]::ASCII.GetBytes($resp)
         $stream.Write($respBytes, 0, $respBytes.Length)
         if ($method -ne "HEAD") { $stream.Write($bytes, 0, $bytes.Length) }

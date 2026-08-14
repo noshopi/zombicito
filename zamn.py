@@ -4773,15 +4773,9 @@ def lobby_click(mx, my):
                             _lobby_sit_local(gLobSelRow)
                             play_snd(SND_CONFIRM)
                     else:
-                        if IS_WEB:
-                            try:
-                                from js import window
-                                window._webLobbyAction(gWebLobbyId, "sit", gLobSelRow, 0)
-                            except Exception:
-                                pass
-                        else:
-                            _lobby_sit_net(gLobSelRow)
-                        play_snd(SND_CONFIRM)
+                        # Seat assignment is automatic and fixed: clicking an
+                        # empty seat never moves a connected player.
+                        play_snd(SND_MENU)
                     return
 
 
@@ -5959,7 +5953,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v102")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v103")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
