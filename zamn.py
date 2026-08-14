@@ -4762,19 +4762,23 @@ def lobby_click(mx, my):
                         return
                     if gLobStage == 1:
                         if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
-                            # The leader's seat is fixed: an empty seat only
-                            # toggles its bot; it never moves the leader.
+                            # Empty seat that's not mine: toggle bot, never move player
                             if gBotEnabled[gLobSelRow]:
                                 gBotEnabled[gLobSelRow] = 0
                                 if IS_WEB:
                                     web_host_announce()
                                 play_snd(SND_MENU)
                         elif gLobSelRow == gMySlot:
-                            _lobby_sit_local(gLobSelRow)
-                            play_snd(SND_CONFIRM)
+                            # Clicking own seat: do nothing (already sitting here)
+                            play_snd(SND_MENU)
+                        elif gKinds[gLobSelRow] != 0:
+                            # Clicking another player's occupied seat: do nothing
+                            play_snd(SND_MENU)
+                        else:
+                            # Empty seat that's not mine and not a bot seat: do nothing
+                            play_snd(SND_MENU)
                     else:
-                        # Seat assignment is automatic and fixed: clicking an
-                        # empty seat never moves a connected player.
+                        # Client in lobby: seat assignment is automatic and fixed
                         play_snd(SND_MENU)
                     return
 
@@ -5953,7 +5957,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v103")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v104")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)

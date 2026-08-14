@@ -279,7 +279,7 @@ while ($true) {
                 })
                 foreach ($key in @($script:Lobbies.Keys)) {
                     $entry = $script:Lobbies[$key]
-                    $age = 999
+                    $age = 0
                     if ($null -ne $entry -and $null -ne $entry.t -and $entry.t -is [DateTime]) {
                         $age = ((Get-Date) - $entry.t).TotalSeconds
                     }
@@ -428,7 +428,7 @@ while ($true) {
             $viewer = Get-AuthUser $head
             foreach ($key in @($script:Lobbies.Keys)) {
                 $entry = $script:Lobbies[$key]
-                $age = 999
+                $age = 0
                 if ($null -ne $entry -and $null -ne $entry.t -and $entry.t -is [DateTime]) {
                     $age = ((Get-Date) - $entry.t).TotalSeconds
                 }
