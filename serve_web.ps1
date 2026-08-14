@@ -39,6 +39,51 @@ $script:Lobbies = @()
 # global design gallery: players upload finished pixel-art characters
 $designsDir = Join-Path $root "designs"
 if (-not (Test-Path $designsDir)) { New-Item -ItemType Directory -Path $designsDir | Out-Null }
+$usersFile = Join-Path $root "auth_users.json"
+$script:Users = @{}
+$script:Sessions = @{}
+if (Test-Path $usersFile) {
+    try {
+        $savedUsers = Get-Content -LiteralPath $usersFile -Raw | ConvertFrom-Json
+        foreach ($p in $savedUsers.psobject.Properties) { $script:Users[$p.Name] = $p.Value }
+    } catch {}
+}
+
+function Save-AuthUsers {
+    $script:Users | ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath $usersFile -Encoding UTF8
+}
+
+function Hash-Password([string]$password, [byte[]]$salt) {
+    $d = New-Object Security.Cryptography.Rfc2898DeriveBytes($password, $salt, 120000)
+    try { return [Convert]::ToBase64String($d.GetBytes(32)) } finally { $d.Dispose() }
+}
+
+function New-Session([string]$userId) {
+    $bytes = New-Object byte[] 32
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $token = [Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=')
+    $script:Sessions[$token] = @{ id = $userId; expires = (Get-Date).AddDays(14) }
+    return $token
+}
+
+function Get-AuthUser([string]$headers) {
+    $token = $null
+    foreach ($h in ($headers -split "`r`n")) {
+        if ($h -like "Cookie:*") {
+            foreach ($c in ($h.Substring(7).Trim() -split ';')) {
+                if ($c.Trim().StartsWith("zamn_session=")) { $token = $c.Trim().Substring(13); break }
+            }
+        }
+    }
+    if (-not $token -or -not $script:Sessions.ContainsKey($token)) { return $null }
+    $session = $script:Sessions[$token]
+    if ((Get-Date) -gt $session.expires) { $script:Sessions.Remove($token); return $null }
+    $id = [string]$session.id
+    foreach ($email in $script:Users.Keys) {
+        if ([string]$script:Users[$email].id -eq $id) { return $script:Users[$email] }
+    }
+    return $null
+}
 
 Write-Host ""
 Write-Host "  ZAMN web page live at  http://zombicito.duckdns.org:$Port/" -ForegroundColor Green
@@ -79,7 +124,79 @@ while ($true) {
         $full = [IO.Path]::GetFullPath($path)
         $ok = $full.StartsWith($base, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path $full -PathType Leaf)
         $handled = $false
-        if ($url -eq "/api/announce" -and $method -eq "POST") {
+        $extraHeaders = ""
+        if (($url -eq "/api/auth/register" -or $url -eq "/api/auth/login") -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $okAuth = $false
+            $message = "CREDENCIALES INVALIDAS"
+            try {
+                $bi = $head.IndexOf("`r`n`r`n")
+                $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                $email = ([string]$o.email).Trim().ToLowerInvariant()
+                $password = [string]$o.password
+                if ($email -match '^[^@\s]+@[^@\s]+\.[^@\s]+$' -and $password.Length -ge 1 -and $password.Length -le 6) {
+                    if ($url -eq "/api/auth/register") {
+                        if ($script:Users.ContainsKey($email)) {
+                            $message = "NO SE PUDO CREAR LA CUENTA"
+                            $status = "409 Conflict"
+                        } else {
+                            $salt = New-Object byte[] 16
+                            [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($salt)
+                            $user = @{ id = ([Guid]::NewGuid().ToString("N")); email = $email;
+                                        salt = [Convert]::ToBase64String($salt); hash = Hash-Password $password $salt }
+                            $script:Users[$email] = $user
+                            Save-AuthUsers
+                            $token = New-Session $user.id
+                            $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
+                            $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email } | ConvertTo-Json -Compress))
+                            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
+                        }
+                    } else {
+                        $user = if ($script:Users.ContainsKey($email)) { $script:Users[$email] } else { $null }
+                        $valid = $false
+                        if ($user) {
+                            $salt = [Convert]::FromBase64String([string]$user.salt)
+                            $calc = Hash-Password $password $salt
+                            $a = [Convert]::FromBase64String($calc)
+                            $b = [Convert]::FromBase64String([string]$user.hash)
+                            $diff = $a.Length - $b.Length
+                            for ($j = 0; $j -lt [Math]::Min($a.Length, $b.Length); $j++) { $diff = $diff -bor ($a[$j] -bxor $b[$j]) }
+                            $valid = ($diff -eq 0)
+                        }
+                        if ($valid) {
+                            $token = New-Session $user.id
+                            $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
+                            $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email } | ConvertTo-Json -Compress))
+                            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
+                        }
+                    }
+                }
+            } catch {}
+            if (-not $okAuth) {
+                if (-not $status) { $status = "400 Bad Request" }
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $false; error = $message } | ConvertTo-Json -Compress))
+                $ct = "application/json; charset=utf-8"
+            }
+            $handled = $true
+        } elseif ($url -eq "/api/auth/me" -and $method -eq "GET") {
+            $user = Get-AuthUser $head
+            if ($user) {
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $user.email } | ConvertTo-Json -Compress))
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"
+            } else {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false}')
+                $ct = "application/json; charset=utf-8"; $status = "401 Unauthorized"
+            }
+            $handled = $true
+        } elseif ($url -eq "/api/announce" -and $method -eq "POST") {
             # read POST body (Content-Length)
             $cl = 0
             foreach ($hl in ($head -split "`r`n")) {
@@ -183,6 +300,7 @@ while ($true) {
             }
             $bi = $head.IndexOf("`r`n`r`n")
             $ok2 = $false
+            $designUser = Get-AuthUser $head
             if ($bi -ge 0) {
                 $body = $head.Substring($bi + 4)
                 try {
@@ -190,11 +308,12 @@ while ($true) {
                     $nm = [string]$o.name
                     $nm = ($nm -replace "[^A-Za-z0-9 _\-]", "_")
                     if ($nm.Length -gt 24) { $nm = $nm.Substring(0, 24) }
-                    $owner = ([string]$o.owner -replace "[^A-Za-z0-9_-]", "_")
+                    $owner = if ($designUser) { [string]$designUser.id } else { "" }
+                    $owner = ($owner -replace "[^A-Za-z0-9_-]", "_")
                     if ($owner.Length -gt 32) { $owner = $owner.Substring(0, 32) }
                     if ($owner.Trim() -eq "") { $owner = "anonymous" }
                     $prefix = if ([bool]$o.public) { "public__{0}" -f $owner } else { $owner }
-                    if ($nm.Trim() -ne "" -and -not [string]::IsNullOrEmpty([string]$o.png)) {
+                    if ($designUser -and $nm.Trim() -ne "" -and -not [string]::IsNullOrEmpty([string]$o.png)) {
                         Get-ChildItem -Path $designsDir -Filter ("{0}__{1}__*.png" -f $prefix, $nm) -ErrorAction SilentlyContinue | Remove-Item -Force
                         $f = Join-Path $designsDir ("{0}__{1}__{2}.png" -f $prefix, $nm, [DateTime]::Now.Ticks)
                         [IO.File]::WriteAllBytes($f, [Convert]::FromBase64String([string]$o.png))
@@ -202,6 +321,7 @@ while ($true) {
                     }
                 } catch {}
             }
+            if (-not $designUser) { $status = "401 Unauthorized" }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
             $ct = "application/json; charset=utf-8"
             $status = "200 OK"
@@ -307,15 +427,17 @@ while ($true) {
                 $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
             }
             $ok2 = $false
+            $designUser = Get-AuthUser $head
             try {
                 $bi = $head.IndexOf("`r`n`r`n")
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
-                $owner = ([string]$o.owner -replace "[^A-Za-z0-9_-]", "_")
+                $owner = if ($designUser) { [string]$designUser.id } else { "" }
+                $owner = ($owner -replace "[^A-Za-z0-9_-]", "_")
                 $id = [IO.Path]::GetFileName([string]$o.id)
                 $publishName = ([string]$o.name -replace "[^A-Za-z0-9 _\-]", "_").Trim()
                 if ($publishName.Length -gt 24) { $publishName = $publishName.Substring(0, 24) }
                 $source = Join-Path $designsDir $id
-                if ($owner -and $id.StartsWith($owner + "__") -and (Test-Path $source -PathType Leaf)) {
+                if ($designUser -and $owner -and $id.StartsWith($owner + "__") -and (Test-Path $source -PathType Leaf)) {
                     $parts = ([IO.Path]::GetFileNameWithoutExtension($id) -split "__", 4)
                     if ($parts.Count -ge 3) {
                         if (-not $publishName) { $publishName = $parts[1] }
@@ -325,6 +447,7 @@ while ($true) {
                     }
                 }
             } catch {}
+            if (-not $designUser) { $status = "401 Unauthorized" }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
             $ct = "application/json; charset=utf-8"
             $status = "200 OK"
@@ -340,10 +463,12 @@ while ($true) {
                 $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
             }
             $ok2 = $false
+            $designUser = Get-AuthUser $head
             try {
                 $bi = $head.IndexOf("`r`n`r`n")
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
-                $owner = ([string]$o.owner -replace "[^A-Za-z0-9_-]", "_")
+                $owner = if ($designUser) { [string]$designUser.id } else { "" }
+                $owner = ($owner -replace "[^A-Za-z0-9_-]", "_")
                 $nm = ([string]$o.name -replace "[^A-Za-z0-9 _\-]", "_").Trim()
                 if ($nm.Length -gt 24) { $nm = $nm.Substring(0, 24) }
                 $id = [IO.Path]::GetFileName([string]$o.id)
@@ -351,7 +476,7 @@ while ($true) {
                 $base = [IO.Path]::GetFileNameWithoutExtension($id)
                 $parts = $base -split "__", 4
                 $owned = ($id.StartsWith($owner + "__") -or $id.StartsWith("public__" + $owner + "__"))
-                if ($owned -and $nm -and $parts.Count -ge 3 -and (Test-Path $source -PathType Leaf)) {
+                if ($designUser -and $owned -and $nm -and $parts.Count -ge 3 -and (Test-Path $source -PathType Leaf)) {
                     if ($parts[0] -eq "public") {
                         $targetName = "public__{0}__{1}__{2}.png" -f $owner, $nm, $parts[3]
                     } else {
@@ -361,10 +486,13 @@ while ($true) {
                     $ok2 = $true
                 }
             } catch {}
+            if (-not $designUser) { $status = "401 Unauthorized" }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":' + ($ok2.ToString().ToLower()) + '}')
-            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+            $ct = "application/json; charset=utf-8"; if (-not $status) { $status = "200 OK" }; $handled = $true
         } elseif ($url -eq "/api/designs/mine" -or $url -like "/api/designs/mine/*") {
-            $owner = [Uri]::UnescapeDataString($url.Substring("/api/designs/mine/".Length)) -replace "[^A-Za-z0-9_-]", "_"
+            $designUser = Get-AuthUser $head
+            $owner = if ($designUser) { [string]$designUser.id } else { "" }
+            $owner = ($owner -replace "[^A-Za-z0-9_-]", "_")
             $private = @(Get-ChildItem -Path $designsDir -Filter ("{0}__*.png" -f $owner) -ErrorAction SilentlyContinue)
             $published = @(Get-ChildItem -Path $designsDir -Filter ("public__{0}__*.png" -f $owner) -ErrorAction SilentlyContinue)
             $list = @($private + $published | ForEach-Object {
@@ -377,7 +505,7 @@ while ($true) {
             if ($null -eq $json) { $json = "[]" }
             elseif ($json[0] -ne '[') { $json = "[" + $json + "]" }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+            $ct = "application/json; charset=utf-8"; $status = if ($designUser) { "200 OK" } else { "401 Unauthorized" }; $handled = $true
         } elseif ($url -eq "/api/designs") {
             $list = @(Get-ChildItem -Path $designsDir -Filter "public__*.png" -ErrorAction SilentlyContinue | ForEach-Object {
                 $parts = $_.BaseName -split "__", 4
@@ -417,7 +545,7 @@ while ($true) {
                 $status = "404 Not Found"
             }
         }
-        $resp = "HTTP/1.1 $status`r`nContent-Type: $ct`r`nContent-Length: $($bytes.Length)`r`nCache-Control: no-store`r`nPragma: no-cache`r`nConnection: close`r`n`r`n"
+        $resp = "HTTP/1.1 $status`r`nContent-Type: $ct`r`nContent-Length: $($bytes.Length)`r`nCache-Control: no-store`r`nPragma: no-cache`r`n" + $extraHeaders + "Connection: close`r`n`r`n"
         Write-Host ("[REQ] " + $method + " " + $url + " -> " + $status + " " + $bytes.Length)
         $respBytes = [System.Text.Encoding]::ASCII.GetBytes($resp)
         $stream.Write($respBytes, 0, $respBytes.Length)

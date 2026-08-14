@@ -58,13 +58,62 @@
         font: 12px/1.4 Consolas, monospace;
         letter-spacing: 1px;
     }
+    #auth {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 35%, #211331 0, #05030a 60%);
+        color: #e8d8f4;
+        font: 14px/1.4 "Segoe UI", system-ui, sans-serif;
+    }
+    #authBox {
+        width: min(360px, calc(100vw - 36px));
+        padding: 24px;
+        background: #100a1c;
+        border: 1px solid #c8a042;
+        box-shadow: 0 0 0 6px rgba(36, 22, 52, .8);
+    }
+    #authBox h1 { margin: 0 0 18px; color: #ffe678; font-size: 22px; letter-spacing: 2px; }
+    #authBox input {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 5px 0;
+        padding: 9px;
+        color: #fff3b0;
+        background: #1e122c;
+        border: 1px solid #76558d;
+    }
+    #authBox button {
+        margin: 12px 6px 0 0;
+        padding: 8px 12px;
+        color: #201329;
+        background: #e8bd58;
+        border: 0;
+        cursor: pointer;
+        font-weight: 700;
+    }
+    #authMsg { min-height: 20px; margin-top: 10px; color: #ff9b78; }
 </style>
 </head>
 <body>
+<div id="auth">
+  <div id="authBox">
+    <h1>ZOMBICITO</h1>
+    <div>CREAR USUARIO</div>
+    <input id="authEmail" type="email" autocomplete="email" placeholder="Correo electrónico">
+    <input id="authPassword" type="password" maxlength="6" autocomplete="new-password" placeholder="Contraseña (máx. 6 caracteres)">
+    <button id="authCreate">CREAR CUENTA</button>
+    <button id="authLogin">INICIAR SESION</button>
+    <div id="authMsg"></div>
+  </div>
+</div>
 <div id="wrap"><canvas id="game" width="1440" height="810"></canvas></div>
 <a id="back" href="../">&larr; VOLVER</a>
 <div id="status">cargando...</div>
 <script src="pyodide/pyodide.js"></script>
-<script src="game.js?v=93"></script>
+<script src="game.js?v=94"></script>
 </body>
 </html>

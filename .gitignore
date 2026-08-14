@@ -26,3 +26,4 @@ ZamnServer.exe
 # Local generated custom output
 ZamnNative/assets/custom_drawn.png
 ZamnNative/assets/custom_neighbor.png
+auth_users.json

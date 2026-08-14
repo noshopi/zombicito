@@ -503,10 +503,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=93")).text();
+            const src = await (await fetch(f + "?v=94")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=93")).text();
+        const shim = await (await fetch("pygame.py?v=94")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(
@@ -534,4 +534,50 @@ async function boot() {
     }
 }
 
-boot();
+const authEl = document.getElementById("auth");
+const authMsg = document.getElementById("authMsg");
+const authEmail = document.getElementById("authEmail");
+const authPassword = document.getElementById("authPassword");
+async function authenticate(path) {
+    authMsg.textContent = "...";
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    if (!email || !password || password.length > 6) {
+        authMsg.textContent = "Correo y contraseña de máximo 6 caracteres.";
+        return false;
+    }
+    try {
+        const r = await fetch(path, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }), credentials: "same-origin",
+            cache: "no-store"
+        });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || "No se pudo autenticar");
+        window._designOwnerId = data.userId;
+        localStorage.setItem("zamn_design_owner", data.userId);
+        authEl.style.display = "none";
+        boot();
+        return true;
+    } catch (e) {
+        authMsg.textContent = e.message || "No se pudo autenticar.";
+        return false;
+    }
+}
+document.getElementById("authCreate").addEventListener("click", () => authenticate("/api/auth/register"));
+document.getElementById("authLogin").addEventListener("click", () => authenticate("/api/auth/login"));
+async function authGate() {
+    try {
+        const r = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
+        const data = await r.json();
+        if (r.ok && data.ok) {
+            window._designOwnerId = data.userId;
+            localStorage.setItem("zamn_design_owner", data.userId);
+            authEl.style.display = "none";
+            boot();
+        }
+    } catch (e) {
+        authMsg.textContent = "Crea una cuenta para comenzar.";
+    }
+}
+authGate();
