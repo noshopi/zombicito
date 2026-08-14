@@ -653,7 +653,7 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=111")).text();
+            const src = await (await fetch(f + "?v=113")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
         const shim = await (await fetch("pygame.py?v=106")).text();

@@ -4444,6 +4444,11 @@ def render_lobby():
                 if mine and rdy:
                     vbuf.fill((110, 235, 70), (bx + 96, sy + 4, 12, 10))
                     vbuf.fill((40, 90, 40), (bx + 96, sy + 8, 12, 2))
+                if gKinds[slot] == 0 and gLobStage == 1 and gIsLeader:
+                    bcol = (110, 235, 110) if gBotEnabled[slot] else (150, 145, 170)
+                    vbuf.fill((30, 18, 44), (bx + 72, sy + 13, 38, 13))
+                    pygame.draw.rect(vbuf, (200, 160, 66), (bx + 72, sy + 13, 38, 13), 1)
+                    draw_text_c(vbuf, bx + 91, sy + 15, 1, bcol, "BOT")
         # chat window
         sc_panel(vbuf, (4, 146, VIEW_W - 8, 92), (16, 9, 24), g, 8)
         draw_text(vbuf, 10, 148, 1, g, tr("chat_title"))
@@ -4492,7 +4497,7 @@ def render_lobby():
         buttons = [(52, tr("ed_back"))]
         if gLobStage == 1 and gIsLeader:
             buttons.append((236, "SIN BOTS"))
-        if gLobStage == 1 and gMySlot == 0:
+        if gLobStage == 1 and gHosting:
             buttons.append((420, "LANZAR"))
         for cx, label in buttons:
             fill = (30, 18, 44)
@@ -4843,6 +4848,31 @@ def render_console_overlay():
     draw_text(vbuf, 28, 42, 1, (255, 230, 120), ">" + gConsoleInput + "_")
 
 
+def host_move_seat(newslot):
+    global gMySlot, gLocalSlot, gKinds, gBotEnabled, gLobReady, gLobTeam, gLobChar, gCustNet
+    if newslot == gMySlot or gKinds[newslot] != 0:
+        play_snd(SND_MENU)
+        return
+    old = gMySlot
+    gKinds[newslot] = gKinds[old]
+    gKinds[old] = 0
+    gBotEnabled[newslot] = 0
+    gBotEnabled[old] = 0
+    gLobReady[newslot] = gLobReady[old]
+    gLobReady[old] = 0
+    gLobTeam[newslot] = gLobTeam[old]
+    gLobChar[newslot] = gLobChar[old]
+    gCustNet[newslot] = gCustNet[old]
+    gCustNet[old] = None
+    gMySlot = newslot
+    gLocalSlot = newslot
+    if IS_WEB:
+        web_host_announce()
+    elif gSock is not None:
+        host_broadcast_lobby()
+    play_snd(SND_CONFIRM)
+
+
 def lobby_click(mx, my):
     global gLobSel, gLobStage, gLobSelRow, gLobCount, gSt, gLocalSlot, gLobbyGot, gJoinReqT, gJoinStartT
     global gChatTyping, gChatInput, gLevelSel, gBotEnabled, gLobIpTyping, gLobIp, gWebLobbyId
@@ -4967,7 +4997,7 @@ def lobby_click(mx, my):
                     if IS_WEB:
                         web_host_announce()
                     play_snd(SND_MENU)
-                elif b == 2 and gLobStage == 1 and gMySlot == 0:
+                elif b == 2 and gLobStage == 1 and gHosting:
                     lobby_start_match()
                     play_snd(SND_CONFIRM)
                 return
@@ -5026,11 +5056,17 @@ def lobby_click(mx, my):
                         return
                     if gLobStage == 1:
                         if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
-                            # Empty seat that's not mine: toggle bot, never move player
-                            if gBotEnabled[gLobSelRow]:
-                                gBotEnabled[gLobSelRow] = 0
-                                if IS_WEB:
-                                    web_host_announce()
+                            if gHosting:
+                                # Host: click an empty seat to move there.
+                                host_move_seat(gLobSelRow)
+                            elif gIsLeader:
+                                # Non-hosting leader clicking an empty seat: clear any bot.
+                                if gBotEnabled[gLobSelRow]:
+                                    gBotEnabled[gLobSelRow] = 0
+                                    if IS_WEB:
+                                        web_host_announce()
+                                    play_snd(SND_MENU)
+                            else:
                                 play_snd(SND_MENU)
                         elif gLobSelRow == gMySlot:
                             # Clicking own seat: do nothing (already sitting here)
@@ -6548,12 +6584,33 @@ def web_lobby_sync():
         teams = state.teams
         chars = state.chars
         ready = state.ready
+        host_ready = gLobReady[gMySlot] if 0 <= gMySlot < MAX_PLAYERS else 0
         for i in range(MAX_PLAYERS):
             gKinds[i] = int(kinds[i])
-            gBotEnabled[i] = int(bots[i])
             gLobTeam[i] = int(teams[i])
             gLobChar[i] = int(chars[i])
-            gLobReady[i] = int(ready[i])
+            if gHosting:
+                # The host owns its seat, its ready state and the bot configuration;
+                # only client seats (kind >= 2) and their ready are mirrored back.
+                if i == gMySlot:
+                    gLobReady[i] = host_ready
+                else:
+                    gLobReady[i] = int(ready[i])
+                if gKinds[i] >= 2:
+                    gBotEnabled[i] = 0
+            else:
+                gBotEnabled[i] = int(bots[i])
+                gLobReady[i] = int(ready[i])
+        if gHosting:
+            # Re-assert the host's own seat so a stale server poll can't unseat it.
+            for i in range(MAX_PLAYERS):
+                if gKinds[i] == 1 and i != gMySlot:
+                    gKinds[i] = 0
+                    gBotEnabled[i] = 0
+                    gLobReady[i] = 0
+            if 0 <= gMySlot < MAX_PLAYERS:
+                gKinds[gMySlot] = 1
+                gBotEnabled[gMySlot] = 0
         slot = int(window._webLobbySlot)
         if slot >= 0:
             gMySlot = slot
