@@ -333,6 +333,16 @@ while ($true) {
                     while ($ready.Count -lt $slots) { $ready += 0 }
                     $clients = @{}
                     if ($null -ne $old -and $old.clients) { foreach ($p in $old.clients.GetEnumerator()) { $clients[[string]$p.Key] = [int]$p.Value } }
+                    if ($null -ne $old -and $old.kinds -and $clients.Count -gt 0) {
+                        foreach ($p in $clients.GetEnumerator()) {
+                            $slot = [int]$p.Value
+                            if ($slot -ge 0 -and $slot -lt $slots -and $old.kinds.Count -gt $slot) {
+                                $kinds[$slot] = [int]$old.kinds[$slot]
+                                $bots[$slot] = 0
+                                if ($old.ready.Count -gt $slot) { $ready[$slot] = [int]$old.ready[$slot] }
+                            }
+                        }
+                    }
                     $revision = if ($null -ne $old) { [int]$old.revision } else { 0 }
                     $entry = @{ name = [string]$o.name; host = $hostId; owner = $hostId; region = 1;
                         filled = @($kinds | Where-Object { [int]$_ -gt 0 }).Count; slots = $slots;

@@ -4597,15 +4597,12 @@ def lobby_click(mx, my):
     global gLobSel, gLobStage, gLobSelRow, gLobCount, gSt, gLocalSlot, gLobbyGot, gJoinReqT, gJoinStartT
     global gChatTyping, gChatInput, gLevelSel, gBotEnabled, gLobIpTyping, gLobIp, gWebLobbyId
     if gLobStage == 3:
-        for b, cx in ((0, 42), (1, 142), (2, 282), (3, 430)):
+        for b, cx in ((0, 60), (1, 240), (2, 420)):
             if abs(mx - cx) <= 42 and 238 <= my <= 256:
                 if b == 0:
                     play_snd(SND_MENU)
                     gSt = ST_MENU
                 elif b == 1:
-                    gLobIpTyping = True
-                    play_snd(SND_MENU)
-                elif b == 2:
                     gLobCount = 0
                     if IS_WEB:
                         try:
@@ -4617,11 +4614,11 @@ def lobby_click(mx, my):
                         net_browse_open()
                     play_snd(SND_MENU)
                 else:
-                    if gLobIpTyping and gLobIp.strip():
-                        lobby_connect_ip()
-                        return
                     if IS_WEB:
-                        web_join_lobby(e.host)
+                        if gLobCount > 0:
+                            order = sorted(range(gLobCount),
+                                           key=lambda i: (gLobList[i].started, -gLobList[i].filled))
+                            web_join_lobby(gLobList[order[min(gLobSel, len(order) - 1)]].host)
                     elif gLobCount > 0:
                         order = sorted(range(gLobCount),
                                        key=lambda i: (gLobList[i].started, -gLobList[i].filled))
@@ -5957,7 +5954,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v104")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v105")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
