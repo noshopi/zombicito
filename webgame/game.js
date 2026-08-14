@@ -342,7 +342,7 @@ window._webLobbyAction = async function (host, action, slot, ready, text) {
 async function pollLobbies() {
     try {
         const t0 = performance.now();
-        const r = await fetch("/api/lobbies", { cache: "no-store" });
+        const r = await fetch("/api/lobbies", { credentials: "same-origin", cache: "no-store" });
         window._apiPing = Math.round(performance.now() - t0);
         window._lobbies = await r.json();
     } catch (e) {
@@ -545,10 +545,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=100")).text();
+            const src = await (await fetch(f + "?v=101")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=100")).text();
+        const shim = await (await fetch("pygame.py?v=101")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(

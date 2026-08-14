@@ -255,14 +255,21 @@ while ($true) {
                 $ct = "application/json; charset=utf-8"; $status = "403 Forbidden"; $handled = $true
             } else {
                 $now = Get-Date
-                $players = @($script:Players.Values | Where-Object { (($now - $_.lastSeen).TotalSeconds -lt 12) } | ForEach-Object {
+                $players = @($script:Players.Values | Where-Object {
+                    if ($null -eq $_.lastSeen -or -not ($_.lastSeen -is [DateTime])) { return $false }
+                    (($now - $_.lastSeen).TotalSeconds -lt 30)
+                } | ForEach-Object {
                     $ms = [int](($now - $_.lastSeen).TotalMilliseconds)
                     @{ num = if ($_.num) { $_.num } else { 0 }; email = $_.email; lobby = $_.lobby;
                        ping = if ($_.ping -gt 0) { [int]$_.ping } else { $ms } }
                 })
                 foreach ($key in @($script:Lobbies.Keys)) {
                     $entry = $script:Lobbies[$key]
-                    if (((Get-Date) - $entry.t).TotalSeconds -ge 8 -or
+                    $age = 999
+                    if ($null -ne $entry -and $null -ne $entry.t -and $entry.t -is [DateTime]) {
+                        $age = ((Get-Date) - $entry.t).TotalSeconds
+                    }
+                    if ($age -ge 20 -or
                         ([int]$entry.filled -le 0 -and [int]$entry.started -eq 0)) {
                         $script:Lobbies.Remove($key)
                     }
@@ -322,6 +329,10 @@ while ($true) {
                         inputs = if ($null -ne $old) { $old.inputs } else { @{} };
                         revision = $revision; t = Get-Date }
                     $script:Lobbies[$hostId] = $entry
+                    if ($script:Players.ContainsKey([string]$user.id)) {
+                        $script:Players[[string]$user.id].lobby = $hostId
+                        $script:Players[[string]$user.id].lastSeen = Get-Date
+                    }
                     $bytes = [Text.Encoding]::UTF8.GetBytes((@{ok=$true; state=$entry} | ConvertTo-Json -Compress -Depth 6))
                     $ct = "application/json; charset=utf-8"; $status = "200 OK"
                 } catch {
@@ -399,9 +410,14 @@ while ($true) {
             $status = "200 OK"
             $handled = $true
         } elseif ($url -eq "/api/lobbies") {
+            $viewer = Get-AuthUser $head
             foreach ($key in @($script:Lobbies.Keys)) {
                 $entry = $script:Lobbies[$key]
-                if (((Get-Date) - $entry.t).TotalSeconds -ge 8 -or
+                $age = 999
+                if ($null -ne $entry -and $null -ne $entry.t -and $entry.t -is [DateTime]) {
+                    $age = ((Get-Date) - $entry.t).TotalSeconds
+                }
+                if ($age -ge 20 -or
                     ([int]$entry.filled -le 0 -and [int]$entry.started -eq 0)) {
                     $script:Lobbies.Remove($key)
                 }
@@ -409,9 +425,12 @@ while ($true) {
             $list = @($script:Lobbies.Values | ForEach-Object {
                 $details = @()
                 $n = if ($_.kinds) { @($_.kinds).Count } else { 0 }
+                $teams = @($_.teams); $chars = @($_.chars)
+                while ($teams.Count -lt $n) { $teams += 0 }
+                while ($chars.Count -lt $n) { $chars += 0 }
                 for ($i = 0; $i -lt $n; $i++) {
                     $details += @{ slot = $i; kind = [int]$_.kinds[$i]; bot = [int]$_.bots[$i];
-                                    ready = [int]$_.ready[$i]; team = [int]$_.teams[$i]; char = [int]$_.chars[$i] }
+                                    ready = [int]$_.ready[$i]; team = [int]$teams[$i]; char = [int]$chars[$i] }
                 }
                 $botCount = @($details | Where-Object { $_.bot -eq 1 -and $_.kind -eq 0 }).Count
                 @{ name = $_.name; host = $_.host; region = $_.region; filled = $_.filled;
@@ -564,7 +583,7 @@ while ($true) {
                     $l.t = Get-Date
                     $result = $l
                 }
-            } catch { $actionError = $_.Exception.Message }
+            } catch { $actionError = $_.Exception.Message + " | " + $_.InvocationInfo.PositionMessage }
             $payload = @{ ok = $ok2; revision = if ($result) { [int]$result.revision } else { 0 }; state = $result; error = $actionError } | ConvertTo-Json -Compress -Depth 6
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
