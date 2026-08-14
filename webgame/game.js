@@ -262,6 +262,8 @@ window._announceLobby = async function (lobby) {
 window._webLobbyState = null;
 window._webLobbySlot = -1;
 window._webLobbyRevision = -1;
+window._webLobbyPollSerial = 0;
+window._webPresenceAt = 0;
 window._applyWebLobbyState = function (state) {
     if (!state) return;
     if (state.chat && !Array.isArray(state.chat)) state.chat = [state.chat];
@@ -273,13 +275,31 @@ window._applyWebLobbyState = function (state) {
     window._webLobbySlot = Number(clients[window._designOwnerId] ?? -1);
 };
 window._pollWebLobby = async function (host) {
+    const serial = ++window._webLobbyPollSerial;
+    window._webLastPollStart = performance.now();
     try {
         const r = await fetch("/api/lobbies/state/" + encodeURIComponent(host), { cache: "no-store" });
         if (!r.ok) throw new Error("lobby not found");
-        window._applyWebLobbyState(await r.json());
+        const state = await r.json();
+        if (serial === window._webLobbyPollSerial) {
+            window._applyWebLobbyState(state);
+            const now = performance.now();
+            if (now - window._webPresenceAt > 1500) {
+                window._webPresenceAt = now;
+                fetch("/api/lobbies/action", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ host: host, client: window._designOwnerId,
+                                           action: "heartbeat", slot: -1,
+                                           ready: Math.round(now - window._webLastPollStart), text: "" }),
+                    cache: "no-store"
+                }).catch(() => {});
+            }
+        }
     } catch (e) {
-        window._webLobbyState = null;
-        window._webLobbySlot = -1;
+        if (serial === window._webLobbyPollSerial) {
+            window._webLobbyState = null;
+            window._webLobbySlot = -1;
+        }
     }
 };
 window._webLobbyAction = async function (host, action, slot, ready, text) {
@@ -287,7 +307,9 @@ window._webLobbyAction = async function (host, action, slot, ready, text) {
         const r = await fetch("/api/lobbies/action", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ host: host, client: window._designOwnerId,
-                                  action: action, slot: slot, ready: ready, text: text || "" }),
+                                  action: action, slot: slot, ready: ready,
+                                  text: action === "chat" ? (text || "") : "",
+                                  snap: action === "snap" ? (text || "") : "" }),
             cache: "no-store"
         });
         const result = await r.json();
@@ -504,10 +526,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=98")).text();
+            const src = await (await fetch(f + "?v=99")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=98")).text();
+        const shim = await (await fetch("pygame.py?v=99")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(
@@ -543,6 +565,7 @@ async function authenticate(path) {
     authMsg.textContent = "...";
     const email = authEmail.value.trim();
     const password = authPassword.value;
+    const remember = document.getElementById("authRemember").checked;
     const isAdmin = email === "admin" && password === "th3reth3re";
     if (!email || !password || (!isAdmin && password.length > 6)) {
         authMsg.textContent = "Correo y contraseña de máximo 6 caracteres.";
@@ -551,7 +574,7 @@ async function authenticate(path) {
     try {
         const r = await fetch(path, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password }), credentials: "same-origin",
+            body: JSON.stringify({ email, password, remember }), credentials: "same-origin",
             cache: "no-store"
         });
         const data = await r.json();
@@ -563,6 +586,8 @@ async function authenticate(path) {
         }
         window._designOwnerId = data.userId;
         localStorage.setItem("zamn_design_owner", data.userId);
+        if (remember) localStorage.setItem("zamn_login_email", email);
+        else localStorage.removeItem("zamn_login_email");
         authEl.style.display = "none";
         boot();
         return true;
@@ -571,11 +596,16 @@ async function authenticate(path) {
         return false;
     }
 }
+window._logout = async function () {
+    try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
+    localStorage.removeItem("zamn_design_owner");
+    localStorage.removeItem("zamn_login_email");
+    location.reload();
+};
 document.getElementById("authCreate").addEventListener("click", () => authenticate("/api/auth/register"));
 document.getElementById("authLogin").addEventListener("click", () => authenticate("/api/auth/login"));
 document.getElementById("adminLogout").addEventListener("click", () => {
-    document.getElementById("admin").style.display = "none";
-    authEl.style.display = "flex";
+    window._logout();
 });
 let adminTimer = null;
 function showAdmin() {
@@ -609,6 +639,7 @@ async function refreshAdmin() {
     }
 }
 async function authGate() {
+    authEmail.value = localStorage.getItem("zamn_login_email") || "";
     try {
         const r = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
         const data = await r.json();

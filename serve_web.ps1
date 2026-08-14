@@ -99,6 +99,7 @@ function Get-AuthUser([string]$headers) {
             $player.email = [string]$email
             $player.num = if ($null -ne $user.num) { [int]$user.num } else { 0 }
             if (-not $player.ContainsKey("lobby")) { $player.lobby = "" }
+            if (-not $player.ContainsKey("ping")) { $player.ping = 0 }
             $player.lastSeen = $now
             $script:Players[$id] = $player
             return @{ id = $id; email = [string]$email; num = $player.num; role = [string]$session.role }
@@ -168,7 +169,8 @@ while ($true) {
                 $validFormat = ($email -match '^[^@\s]+@[^@\s]+\.[^@\s]+$' -and $password.Length -ge 1 -and $password.Length -le 6)
                 if ($isAdmin) {
                     $token = New-Session "admin" "admin"
-                    $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
+                    $cookieAge = if ([bool]$o.remember) { "; Max-Age=1209600" } else { "" }
+                    $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax$cookieAge`r`n"
                     $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; admin = $true; num = "ADMIN" } | ConvertTo-Json -Compress))
                     $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
                 } elseif ($validFormat) {
@@ -188,7 +190,8 @@ while ($true) {
                             $script:Users[$email] = $user
                             Save-AuthUsers
                             $token = New-Session $user.id
-                            $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
+                            $cookieAge = if ([bool]$o.remember) { "; Max-Age=1209600" } else { "" }
+                            $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax$cookieAge`r`n"
                             $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email; num = $num } | ConvertTo-Json -Compress))
                             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
                         }
@@ -206,7 +209,8 @@ while ($true) {
                         }
                         if ($valid) {
                             $token = New-Session $user.id
-                            $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
+                            $cookieAge = if ([bool]$o.remember) { "; Max-Age=1209600" } else { "" }
+                            $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax$cookieAge`r`n"
                             $num = if ($null -ne $user.num) { [int]$user.num } else { 0 }
                             $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email; num = $num } | ConvertTo-Json -Compress))
                             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
@@ -230,6 +234,20 @@ while ($true) {
                 $ct = "application/json; charset=utf-8"; $status = "401 Unauthorized"
             }
             $handled = $true
+        } elseif ($url -eq "/api/auth/logout" -and $method -eq "POST") {
+            foreach ($h in ($head -split "`r`n")) {
+                if ($h -like "Cookie:*") {
+                    foreach ($c in ($h.Substring(7).Trim() -split ';')) {
+                        if ($c.Trim().StartsWith("zamn_session=")) {
+                            $token = $c.Trim().Substring(13)
+                            $script:Sessions.Remove($token)
+                        }
+                    }
+                }
+            }
+            $extraHeaders = "Set-Cookie: zamn_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`r`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":true}')
+            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -eq "/api/admin/overview" -and $method -eq "GET") {
             $user = Get-AuthUser $head
             if (-not $user -or $user.role -ne "admin") {
@@ -237,10 +255,10 @@ while ($true) {
                 $ct = "application/json; charset=utf-8"; $status = "403 Forbidden"; $handled = $true
             } else {
                 $now = Get-Date
-                $players = @($script:Players.Values | ForEach-Object {
+                $players = @($script:Players.Values | Where-Object { (($now - $_.lastSeen).TotalSeconds -lt 12) } | ForEach-Object {
                     $ms = [int](($now - $_.lastSeen).TotalMilliseconds)
                     @{ num = if ($_.num) { $_.num } else { 0 }; email = $_.email; lobby = $_.lobby;
-                       ping = $ms }
+                       ping = if ($_.ping -gt 0) { [int]$_.ping } else { $ms } }
                 })
                 foreach ($key in @($script:Lobbies.Keys)) {
                     $entry = $script:Lobbies[$key]
@@ -439,8 +457,17 @@ while ($true) {
                     if ($l.clients.ContainsKey($client)) { $slot = [int]$l.clients[$client] }
                     if ($action -eq "snap") {
                         $l.snap = [string]$o.snap
-                        $l.started = [int]$o.started
+                        if ($null -ne $o.started) { $l.started = [int]$o.started }
                         $l.revision = [int]$l.revision + 1
+                        $ok2 = $true
+                    } elseif ($action -eq "heartbeat") {
+                        $actor = Get-AuthUser $head
+                        $presenceId = if ($actor) { [string]$actor.id } else { $client }
+                        if ($script:Players.ContainsKey($presenceId)) {
+                            $script:Players[$presenceId].lobby = $hostId
+                            $script:Players[$presenceId].lastSeen = Get-Date
+                            $script:Players[$presenceId].ping = [int]$o.ready
+                        }
                         $ok2 = $true
                     } elseif ($action -eq "input") {
                         $l.inputs[$client] = [int]$o.slot

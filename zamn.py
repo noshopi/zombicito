@@ -4015,6 +4015,21 @@ def render_menu():
                                      (pfr[2] * ps, pfr[3] * ps)),
               (VIEW_W - 47 - pfr[2] * ps // 2, 102))
     draw_text_c(vbuf, VIEW_W - 47, 102 + pfr[3] * ps + 6, 1, (255, 230, 120), custom_display_name())
+    vbuf.fill((14, 8, 26), (390, 246, 82, 16))
+    pygame.draw.rect(vbuf, (200, 160, 66), (390, 246, 82, 16), 1)
+    draw_text_c(vbuf, 431, 248, 1, (255, 230, 120), "SALIR")
+
+
+def account_logout():
+    global gRunning, gSt
+    if IS_WEB:
+        try:
+            from js import window
+            window._logout()
+        except Exception:
+            gSt = ST_MENU
+    else:
+        gRunning = False
 
 
 def render_lobby():
@@ -5944,7 +5959,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v98")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v99")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6786,6 +6801,9 @@ def frame(clock=None, auto=0):
                 gMouseErase = False
                 mx, my = mouse_event_vbuf(ev.pos)
                 if gSt == ST_MENU:
+                    if 390 <= mx <= 472 and 244 <= my <= 266:
+                        account_logout()
+                        continue
                     i = hover_row(82, 21, 8, 110, 370)
                     if i >= 0:
                         gMenuIdx = i
