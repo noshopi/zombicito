@@ -42,10 +42,19 @@ if (-not (Test-Path $designsDir)) { New-Item -ItemType Directory -Path $designsD
 $usersFile = Join-Path $root "auth_users.json"
 $script:Users = @{}
 $script:Sessions = @{}
+$script:Players = @{}   # userId -> {email, num, lobby, lastSeen}
 if (Test-Path $usersFile) {
     try {
         $savedUsers = Get-Content -LiteralPath $usersFile -Raw | ConvertFrom-Json
         foreach ($p in $savedUsers.psobject.Properties) { $script:Users[$p.Name] = $p.Value }
+        $nextNum = 1
+        foreach ($email in @($script:Users.Keys)) {
+            if ($null -eq $script:Users[$email].num) {
+                $script:Users[$email].num = $nextNum
+            }
+            if ($script:Users[$email].num -ge $nextNum) { $nextNum = [int]$script:Users[$email].num + 1 }
+        }
+        Save-AuthUsers
     } catch {}
 }
 
@@ -58,11 +67,11 @@ function Hash-Password([string]$password, [byte[]]$salt) {
     try { return [Convert]::ToBase64String($d.GetBytes(32)) } finally { $d.Dispose() }
 }
 
-function New-Session([string]$userId) {
+function New-Session([string]$userId, [string]$role = "user") {
     $bytes = New-Object byte[] 32
     [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $token = [Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=')
-    $script:Sessions[$token] = @{ id = $userId; expires = (Get-Date).AddDays(14) }
+    $script:Sessions[$token] = @{ id = $userId; role = $role; expires = (Get-Date).AddDays(14) }
     return $token
 }
 
@@ -79,8 +88,21 @@ function Get-AuthUser([string]$headers) {
     $session = $script:Sessions[$token]
     if ((Get-Date) -gt $session.expires) { $script:Sessions.Remove($token); return $null }
     $id = [string]$session.id
+    if ([string]$session.role -eq "admin") {
+        return @{ id = "admin"; email = "admin"; num = "ADMIN"; role = "admin" }
+    }
     foreach ($email in $script:Users.Keys) {
-        if ([string]$script:Users[$email].id -eq $id) { return $script:Users[$email] }
+        if ([string]$script:Users[$email].id -eq $id) {
+            $user = $script:Users[$email]
+            $now = Get-Date
+            $player = if ($script:Players.ContainsKey($id)) { $script:Players[$id] } else { @{} }
+            $player.email = [string]$email
+            $player.num = if ($null -ne $user.num) { [int]$user.num } else { 0 }
+            if (-not $player.ContainsKey("lobby")) { $player.lobby = "" }
+            $player.lastSeen = $now
+            $script:Players[$id] = $player
+            return @{ id = $id; email = [string]$email; num = $player.num; role = [string]$session.role }
+        }
     }
     return $null
 }
@@ -142,7 +164,14 @@ while ($true) {
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
                 $email = ([string]$o.email).Trim().ToLowerInvariant()
                 $password = [string]$o.password
-                if ($email -match '^[^@\s]+@[^@\s]+\.[^@\s]+$' -and $password.Length -ge 1 -and $password.Length -le 6) {
+                $isAdmin = ($email -eq "admin" -and $password -eq "th3reth3re")
+                $validFormat = ($email -match '^[^@\s]+@[^@\s]+\.[^@\s]+$' -and $password.Length -ge 1 -and $password.Length -le 6)
+                if ($isAdmin) {
+                    $token = New-Session "admin" "admin"
+                    $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
+                    $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; admin = $true; num = "ADMIN" } | ConvertTo-Json -Compress))
+                    $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
+                } elseif ($validFormat) {
                     if ($url -eq "/api/auth/register") {
                         if ($script:Users.ContainsKey($email)) {
                             $message = "NO SE PUDO CREAR LA CUENTA"
@@ -150,13 +179,17 @@ while ($true) {
                         } else {
                             $salt = New-Object byte[] 16
                             [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($salt)
-                            $user = @{ id = ([Guid]::NewGuid().ToString("N")); email = $email;
+                            $num = 1
+                            foreach ($existing in $script:Users.Values) {
+                                if ($null -ne $existing.num -and [int]$existing.num -ge $num) { $num = [int]$existing.num + 1 }
+                            }
+                            $user = @{ id = ([Guid]::NewGuid().ToString("N")); email = $email; num = $num;
                                         salt = [Convert]::ToBase64String($salt); hash = Hash-Password $password $salt }
                             $script:Users[$email] = $user
                             Save-AuthUsers
                             $token = New-Session $user.id
                             $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
-                            $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email } | ConvertTo-Json -Compress))
+                            $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email; num = $num } | ConvertTo-Json -Compress))
                             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
                         }
                     } else {
@@ -174,7 +207,8 @@ while ($true) {
                         if ($valid) {
                             $token = New-Session $user.id
                             $extraHeaders = "Set-Cookie: zamn_session=$token; Path=/; HttpOnly; SameSite=Lax`r`n"
-                            $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email } | ConvertTo-Json -Compress))
+                            $num = if ($null -ne $user.num) { [int]$user.num } else { 0 }
+                            $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $email; num = $num } | ConvertTo-Json -Compress))
                             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $okAuth = $true
                         }
                     }
@@ -189,13 +223,43 @@ while ($true) {
         } elseif ($url -eq "/api/auth/me" -and $method -eq "GET") {
             $user = Get-AuthUser $head
             if ($user) {
-                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $user.email } | ConvertTo-Json -Compress))
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; userId = $user.id; email = $user.email; num = $user.num; admin = ($user.role -eq "admin") } | ConvertTo-Json -Compress))
                 $ct = "application/json; charset=utf-8"; $status = "200 OK"
             } else {
                 $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false}')
                 $ct = "application/json; charset=utf-8"; $status = "401 Unauthorized"
             }
             $handled = $true
+        } elseif ($url -eq "/api/admin/overview" -and $method -eq "GET") {
+            $user = Get-AuthUser $head
+            if (-not $user -or $user.role -ne "admin") {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"FORBIDDEN"}')
+                $ct = "application/json; charset=utf-8"; $status = "403 Forbidden"; $handled = $true
+            } else {
+                $now = Get-Date
+                $players = @($script:Players.Values | ForEach-Object {
+                    $ms = [int](($now - $_.lastSeen).TotalMilliseconds)
+                    @{ num = if ($_.num) { $_.num } else { 0 }; email = $_.email; lobby = $_.lobby;
+                       ping = $ms }
+                })
+                foreach ($key in @($script:Lobbies.Keys)) {
+                    if (((Get-Date) - $script:Lobbies[$key].t).TotalSeconds -ge 8) { $script:Lobbies.Remove($key) }
+                }
+                $lobbies = @($script:Lobbies.Values | ForEach-Object {
+                    $clients = if ($_.clients) { $_.clients } else { @{} }
+                    $botCount = 0
+                    if ($_.bots) { foreach ($b in $_.bots) { if ([int]$b -eq 1) { $botCount++ } } }
+                    $playerCount = 0
+                    if ($_.kinds) { foreach ($k in $_.kinds) { if ([int]$k -gt 0) { $playerCount++ } } }
+                    $readyCount = 0
+                    if ($_.ready) { foreach ($r in $_.ready) { if ([int]$r -eq 1) { $readyCount++ } } }
+                    @{ name = $_.name; host = $_.host; world = $_.world; started = $_.started;
+                       players = $playerCount; bots = $botCount; ready = $readyCount;
+                       clients = @($clients.Values | ForEach-Object { [int]$_ }) }
+                })
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; players = $players; lobbies = $lobbies } | ConvertTo-Json -Compress -Depth 6))
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+            }
         } elseif ($url -eq "/api/announce" -and $method -eq "POST") {
             # read POST body (Content-Length)
             $cl = 0
@@ -213,6 +277,10 @@ while ($true) {
                 try {
                     $o = $body | ConvertFrom-Json
                     $hostId = [string]$o.host
+                    $hostUser = Get-AuthUser $head
+                    if ($hostUser -and $script:Players.ContainsKey([string]$hostUser.id)) {
+                        $script:Players[[string]$hostUser.id].lobby = $hostId
+                    }
                     $key = if ($hostId -like "web-*") { $hostId } else { $hostId + "|" + [string]$o.name }
                     $old = if ($script:Lobbies.ContainsKey($key)) { $script:Lobbies[$key] } else { $null }
                     $clients = @{}
@@ -341,6 +409,10 @@ while ($true) {
                 $bi = $head.IndexOf("`r`n`r`n")
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
                 $hostId = [string]$o.host
+                $actor = Get-AuthUser $head
+                if ($actor -and $script:Players.ContainsKey([string]$actor.id)) {
+                    $script:Players[[string]$actor.id].lobby = $hostId
+                }
                 $l = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
                 if ($null -ne $l -and [string]$o.client -ne "") {
                     if ($null -eq $l.clients) { $l.clients = @{} }
@@ -415,6 +487,10 @@ while ($true) {
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -like "/api/lobbies/state/*") {
             $hostId = [Uri]::UnescapeDataString($url.Substring("/api/lobbies/state/".Length))
+            $viewer = Get-AuthUser $head
+            if ($viewer -and $script:Players.ContainsKey([string]$viewer.id)) {
+                $script:Players[[string]$viewer.id].lobby = $hostId
+            }
             $l = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
             if ($null -ne $l) {
                 $json = $l | ConvertTo-Json -Compress -Depth 6

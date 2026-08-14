@@ -4743,14 +4743,13 @@ def lobby_click(mx, my):
                         return
                     if gLobStage == 1:
                         if gKinds[gLobSelRow] == 0 and gLobSelRow != gMySlot:
+                            # The leader's seat is fixed: an empty seat only
+                            # toggles its bot; it never moves the leader.
                             if gBotEnabled[gLobSelRow]:
                                 gBotEnabled[gLobSelRow] = 0
                                 if IS_WEB:
                                     web_host_announce()
                                 play_snd(SND_MENU)
-                            else:
-                                _lobby_sit_local(gLobSelRow)
-                                play_snd(SND_CONFIRM)
                         elif gLobSelRow == gMySlot:
                             _lobby_sit_local(gLobSelRow)
                             play_snd(SND_CONFIRM)
@@ -5941,7 +5940,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v96")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v97")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)

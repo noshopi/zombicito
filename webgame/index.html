@@ -96,6 +96,28 @@
         font-weight: 700;
     }
     #authMsg { min-height: 20px; margin-top: 10px; color: #ff9b78; }
+    #admin {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        overflow: auto;
+        padding: 18px;
+        box-sizing: border-box;
+        background: #06040c;
+        color: #e8d8f4;
+        font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+    }
+    #admin h1 { color: #ffe678; font-size: 20px; letter-spacing: 2px; margin: 0 0 6px; }
+    #admin h2 { color: #c8a042; font-size: 15px; letter-spacing: 1px; margin: 18px 0 6px; }
+    #admin table { width: 100%; border-collapse: collapse; background: #100a1c; }
+    #admin th, #admin td { border: 1px solid #3a2352; padding: 5px 8px; text-align: left; }
+    #admin th { background: #1e122c; color: #fff3b0; }
+    #admin .ok { color: #7ddb4f; }
+    #admin .ingame { color: #ff7a7a; }
+    #admin .low { color: #7ddb4f; }
+    #admin .mid { color: #ffd75e; }
+    #admin .high { color: #ff7a7a; }
 </style>
 </head>
 <body>
@@ -104,16 +126,25 @@
     <h1>ZOMBICITO</h1>
     <div>CREAR USUARIO</div>
     <input id="authEmail" type="email" autocomplete="email" placeholder="Correo electrónico">
-    <input id="authPassword" type="password" maxlength="6" autocomplete="new-password" placeholder="Contraseña (máx. 6 caracteres)">
+    <input id="authPassword" type="password" maxlength="32" autocomplete="new-password" placeholder="Contraseña (máx. 6 caracteres)">
     <button id="authCreate">CREAR CUENTA</button>
     <button id="authLogin">INICIAR SESION</button>
     <div id="authMsg"></div>
   </div>
 </div>
+<div id="admin">
+  <h1>ZOMBICITO - PANEL ADMIN</h1>
+  <div id="adminStatus">conectando...</div>
+  <h2>JUGADORES CONECTADOS</h2>
+  <table id="adminPlayers"><thead><tr><th>#</th><th>EMAIL</th><th>PING</th><th>LOBBY</th></tr></thead><tbody></tbody></table>
+  <h2>LOBBYS EN TIEMPO REAL</h2>
+  <table id="adminLobbies"><thead><tr><th>NOMBRE</th><th>MUNDO</th><th>JUGADORES</th><th>BOTS</th><th>READY</th><th>ESTADO</th></tr></thead><tbody></tbody></table>
+  <button id="adminLogout" style="margin-top:16px;padding:8px 12px;background:#e8bd58;border:0;cursor:pointer;font-weight:700;">CERRAR SESION</button>
+</div>
 <div id="wrap"><canvas id="game" width="1440" height="810"></canvas></div>
 <a id="back" href="../">&larr; VOLVER</a>
 <div id="status">cargando...</div>
 <script src="pyodide/pyodide.js"></script>
-<script src="game.js?v=96"></script>
+<script src="game.js?v=97"></script>
 </body>
 </html>

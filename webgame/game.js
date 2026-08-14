@@ -504,10 +504,10 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=96")).text();
+            const src = await (await fetch(f + "?v=97")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=96")).text();
+        const shim = await (await fetch("pygame.py?v=97")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(
@@ -543,7 +543,8 @@ async function authenticate(path) {
     authMsg.textContent = "...";
     const email = authEmail.value.trim();
     const password = authPassword.value;
-    if (!email || !password || password.length > 6) {
+    const isAdmin = email === "admin" && password === "th3reth3re";
+    if (!email || !password || (!isAdmin && password.length > 6)) {
         authMsg.textContent = "Correo y contraseña de máximo 6 caracteres.";
         return false;
     }
@@ -555,6 +556,11 @@ async function authenticate(path) {
         });
         const data = await r.json();
         if (!r.ok || !data.ok) throw new Error(data.error || "No se pudo autenticar");
+        if (data.admin) {
+            authEl.style.display = "none";
+            showAdmin();
+            return true;
+        }
         window._designOwnerId = data.userId;
         localStorage.setItem("zamn_design_owner", data.userId);
         authEl.style.display = "none";
@@ -567,11 +573,51 @@ async function authenticate(path) {
 }
 document.getElementById("authCreate").addEventListener("click", () => authenticate("/api/auth/register"));
 document.getElementById("authLogin").addEventListener("click", () => authenticate("/api/auth/login"));
+document.getElementById("adminLogout").addEventListener("click", () => {
+    document.getElementById("admin").style.display = "none";
+    authEl.style.display = "flex";
+});
+let adminTimer = null;
+function showAdmin() {
+    document.getElementById("admin").style.display = "block";
+    refreshAdmin();
+    if (adminTimer) clearInterval(adminTimer);
+    adminTimer = setInterval(refreshAdmin, 2000);
+}
+async function refreshAdmin() {
+    try {
+        const r = await fetch("/api/admin/overview", { credentials: "same-origin", cache: "no-store" });
+        if (!r.ok) throw new Error("forbidden");
+        const data = await r.json();
+        document.getElementById("adminStatus").textContent = "actualizado " + new Date().toLocaleTimeString();
+        const players = (data.players || []).sort((a, b) => (a.num || 0) - (b.num || 0));
+        document.querySelector("#adminPlayers tbody").innerHTML = players.map(p => {
+            const ping = Number(p.ping) || 0;
+            const cls = ping < 800 ? "low" : ping < 2500 ? "mid" : "high";
+            return "<tr><td>#" + (p.num || "?") + "</td><td>" + (p.email || "?") + "</td>" +
+                   "<td class='" + cls + "'>" + ping + " ms</td><td>" + (p.lobby || "-") + "</td></tr>";
+        }).join("") || "<tr><td colspan='4'>sin jugadores</td></tr>";
+        const lobbies = data.lobbies || [];
+        document.querySelector("#adminLobbies tbody").innerHTML = lobbies.map(l => {
+            const st = l.started ? "<span class='ingame'>EN PARTIDA</span>" : "<span class='ok'>ESPERANDO</span>";
+            return "<tr><td>" + (l.name || "?") + "</td><td>" + (Number(l.world) + 1) + "</td>" +
+                   "<td>" + (l.players || 0) + "</td><td>" + (l.bots || 0) + "</td>" +
+                   "<td>" + (l.ready || 0) + "</td><td>" + st + "</td></tr>";
+        }).join("") || "<tr><td colspan='6'>sin lobbys</td></tr>";
+    } catch (e) {
+        document.getElementById("adminStatus").textContent = "acceso denegado o sin conexion";
+    }
+}
 async function authGate() {
     try {
         const r = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
         const data = await r.json();
         if (r.ok && data.ok) {
+            if (data.admin) {
+                authEl.style.display = "none";
+                showAdmin();
+                return;
+            }
             window._designOwnerId = data.userId;
             localStorage.setItem("zamn_design_owner", data.userId);
             authEl.style.display = "none";
