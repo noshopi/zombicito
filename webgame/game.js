@@ -4,6 +4,56 @@ const statusEl = document.getElementById("status");
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+// ---- log buffer + auto-copy on error ----
+window._gameLog = [];
+const _origConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+function _logLine(level, args) {
+    const t = new Date().toTimeString().slice(0, 8);
+    let s = "";
+    for (let i = 0; i < args.length; i++) {
+        let part;
+        try {
+            const a = args[i];
+            part = (typeof a === "object" && a !== null) ? (a.stack || JSON.stringify(a)) : String(a);
+        } catch (e2) { part = "[object]"; }
+        s += (s ? " " : "") + part;
+    }
+    window._gameLog.push(t + " " + level + " " + s);
+    if (window._gameLog.length > 500) window._gameLog.splice(0, window._gameLog.length - 500);
+}
+console.log = function () { _logLine("LOG", arguments); _origConsole.log.apply(console, arguments); };
+console.warn = function () { _logLine("WARN", arguments); _origConsole.warn.apply(console, arguments); };
+console.error = function () { _logLine("ERR", arguments); _origConsole.error.apply(console, arguments); };
+console.info = function () { _logLine("INFO", arguments); _origConsole.info.apply(console, arguments); };
+
+function _copyToClipboard(text) {
+    const done = function () { statusEl.textContent = "error copiado al portapapeles (Ctrl+V para pegar)"; };
+    const fallback = function () {
+        try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand("copy");
+            document.body.removeChild(ta);
+            if (ok) done();
+        } catch (e2) {}
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+        fallback();
+    }
+}
+function _copyLog(extra) {
+    const text = "=== ZAMN ERROR ===\n" + (extra || "") +
+        "\n=== LOG (ultimas 300 lineas) ===\n" + window._gameLog.slice(-300).join("\n");
+    _copyToClipboard(text);
+}
+window._copyLog = _copyLog;
+
 const K_UP = 1073741906, K_DOWN = 1073741905, K_LEFT = 1073741904, K_RIGHT = 1073741903;
 
 window._gameCanvas = canvas;
@@ -504,6 +554,30 @@ window._stopAll = function () {
     soundNodes = [];
 };
 
+function _walkMaskFromUpper(bmp) {
+    const cv = document.createElement("canvas");
+    cv.width = bmp.width;
+    cv.height = bmp.height;
+    const cx = cv.getContext("2d");
+    cx.drawImage(bmp, 0, 0);
+    const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+    const tw = Math.floor(cv.width / 16), th = Math.floor(cv.height / 16);
+    const mask = new Uint8Array(tw * th);
+    for (let ty = 0; ty < th; ty++) {
+        for (let tx = 0; tx < tw; tx++) {
+            let wall = false;
+            for (let dy = 0; dy < 16 && !wall; dy++) {
+                const row = ((ty * 16 + dy) * cv.width + tx * 16) * 4 + 3;
+                for (let dx = 0; dx < 16; dx++) {
+                    if (d[row + dx * 4] > 200) { wall = true; break; }
+                }
+            }
+            mask[ty * tw + tx] = wall ? 0 : 1;
+        }
+    }
+    return mask;
+}
+
 // ---- boot ----
 async function boot() {
     try {
@@ -537,18 +611,48 @@ async function boot() {
         pyodide.FS.mkdir("/assets");
         pyodide.FS.writeFile("/assets/walk_big.bin", new Uint8Array(walk));
         for (let i = 1; i <= 6; i++) {
-            const wi = await (await fetch("/ZamnNative/assets/walk" + i + "_snes.bin")).arrayBuffer();
-            pyodide.FS.writeFile("/assets/walk" + i + "_snes.bin", new Uint8Array(wi));
+            const up = window._images["level" + i + "_snes_upper.png"];
+            if (up) {
+                pyodide.FS.writeFile("/assets/walk" + i + "_snes.bin", _walkMaskFromUpper(up));
+            } else {
+                const wi = await (await fetch("/ZamnNative/assets/walk" + i + "_snes.bin")).arrayBuffer();
+                pyodide.FS.writeFile("/assets/walk" + i + "_snes.bin", new Uint8Array(wi));
+            }
         }
         for (const n of names) pyodide.FS.writeFile("/assets/" + n, new Uint8Array(0));
+
+        statusEl.textContent = "cargando mapas comunitarios...";
+        try {
+            const cat = await (await fetch("/api/maps/catalog", { credentials: "same-origin", cache: "no-store" })).json();
+            if (Array.isArray(cat)) {
+                const community = [];
+                for (const m of cat) {
+                    const code = String(m.code || "").toUpperCase();
+                    if (!/^[A-Z2-9]{4}$/.test(code)) continue;
+                    try {
+                        const baseB = await (await fetch("/api/maps/data/" + code + "/base", { credentials: "same-origin", cache: "no-store" })).blob();
+                        const upB = await (await fetch("/api/maps/data/" + code + "/upper", { credentials: "same-origin", cache: "no-store" })).blob();
+                        window._images["map" + code + "_snes.png"] = await createImageBitmap(baseB);
+                        window._images["map" + code + "_snes_upper.png"] = await createImageBitmap(upB);
+                        pyodide.FS.writeFile("/assets/map" + code + "_snes.png", new Uint8Array(0));
+                        pyodide.FS.writeFile("/assets/map" + code + "_snes_upper.png", new Uint8Array(0));
+                        pyodide.FS.writeFile("/assets/walk" + code + "_snes.bin", _walkMaskFromUpper(window._images["map" + code + "_snes_upper.png"]));
+                        let layout = {};
+                        try { layout = await (await fetch("/api/maps/data/" + code + "/layout", { credentials: "same-origin", cache: "no-store" })).json(); } catch (e2) {}
+                        community.push({ code: code, name: String(m.name || "MAPA " + code), layout: layout || {} });
+                    } catch (e3) { console.warn("mapa comunitario omitido", code, e3); }
+                }
+                if (community.length) pyodide.FS.writeFile("/assets/community.json", new TextEncoder().encode(JSON.stringify(community)));
+            }
+        } catch (e4) { console.warn("sin mapas comunitarios", e4); }
 
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=105")).text();
+            const src = await (await fetch(f + "?v=108")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
-        const shim = await (await fetch("pygame.py?v=105")).text();
+        const shim = await (await fetch("pygame.py?v=106")).text();
         pyodide.FS.writeFile("/pygame.py", shim);
         statusEl.textContent = "arrancando juego...";
         await pyodide.runPythonAsync(
@@ -564,6 +668,7 @@ async function boot() {
             } catch (e) {
                 console.error("[ZAMN FRAME]", e);
                 statusEl.textContent = "error: " + (e && e.message ? e.message : e);
+                _copyLog("[ZAMN FRAME] " + (e && e.message ? e.message : e) + "\n" + (e && e.stack ? e.stack : ""));
                 return;
             }
             requestAnimationFrame(step);
@@ -573,8 +678,52 @@ async function boot() {
     } catch (err) {
         console.error("[ZAMN BOOT]", err);
         statusEl.textContent = "error: " + (err && err.message ? err.message : err);
+        _copyLog("[ZAMN BOOT] " + (err && err.message ? err.message : err) + "\n" + (err && err.stack ? err.stack : ""));
     }
 }
+
+window.addEventListener("error", function (ev) {
+    if (window._frameLoop) {
+        console.error("[ZAMN GLOBAL]", ev.message);
+        _copyLog("[ZAMN GLOBAL] " + ev.message + "\n" + (ev.filename || "") + ":" + (ev.lineno || 0) + ":" + (ev.colno || 0) + "\n" + (ev.error && ev.error.stack ? ev.error.stack : ""));
+    }
+});
+window.addEventListener("unhandledrejection", function (ev) {
+    if (window._frameLoop) {
+        const r = ev.reason;
+        console.error("[ZAMN PROMISE]", r);
+        _copyLog("[ZAMN PROMISE] " + (r && r.message ? r.message : String(r)) + "\n" + (r && r.stack ? r.stack : ""));
+    }
+});
+
+// ---- community maps: test <code> bridge ----
+window._testCommunityMap = async function (code) {
+    code = String(code || "").toUpperCase();
+    if (!/^[A-Z2-9]{4}$/.test(code)) return;
+    try {
+        if (!window._images["map" + code + "_snes_upper.png"]) {
+            const baseB = await (await fetch("/api/maps/data/" + code + "/base", { credentials: "same-origin", cache: "no-store" })).blob();
+            const upB = await (await fetch("/api/maps/data/" + code + "/upper", { credentials: "same-origin", cache: "no-store" })).blob();
+            window._images["map" + code + "_snes.png"] = await createImageBitmap(baseB);
+            window._images["map" + code + "_snes_upper.png"] = await createImageBitmap(upB);
+            pyodide.FS.writeFile("/assets/map" + code + "_snes.png", new Uint8Array(0));
+            pyodide.FS.writeFile("/assets/map" + code + "_snes_upper.png", new Uint8Array(0));
+            pyodide.FS.writeFile("/assets/walk" + code + "_snes.bin", _walkMaskFromUpper(window._images["map" + code + "_snes_upper.png"]));
+            let layout = {};
+            try { layout = await (await fetch("/api/maps/data/" + code + "/layout", { credentials: "same-origin", cache: "no-store" })).json(); } catch (e2) {}
+            const cj = "/assets/community.json";
+            let arr = [];
+            try { arr = JSON.parse(new TextDecoder().decode(pyodide.FS.readFile(cj))); } catch (e3) { arr = []; }
+            arr = arr.filter(function (m) { return m.code !== code; });
+            arr.push({ code: code, name: "MAPA " + code, layout: layout || {} });
+            pyodide.FS.writeFile(cj, new TextEncoder().encode(JSON.stringify(arr)));
+        }
+        pyodide.runPython("zamn.community_map_ready(" + JSON.stringify(code) + ")");
+    } catch (e4) {
+        console.error("[ZAMN TEST MAPA]", e4);
+        _copyLog("[ZAMN TEST MAPA] " + (e4 && e4.message ? e4.message : e4));
+    }
+};
 
 const authEl = document.getElementById("auth");
 const authMsg = document.getElementById("authMsg");
@@ -633,6 +782,20 @@ function showAdmin() {
     if (adminTimer) clearInterval(adminTimer);
     adminTimer = setInterval(refreshAdmin, 2000);
 }
+async function adminAction(url, payload) {
+    try {
+        await fetch(url, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload), credentials: "same-origin", cache: "no-store"
+        });
+    } catch (e) {}
+    refreshAdmin();
+}
+function esc(t) {
+    return String(t == null ? "" : t).replace(/[&<>"']/g, c => (
+        c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;"
+    ));
+}
 async function refreshAdmin() {
     try {
         const r = await fetch("/api/admin/overview", { credentials: "same-origin", cache: "no-store" });
@@ -653,6 +816,24 @@ async function refreshAdmin() {
                    "<td>" + (l.players || 0) + "</td><td>" + (l.bots || 0) + "</td>" +
                    "<td>" + (l.ready || 0) + "</td><td>" + st + "</td></tr>";
         }).join("") || "<tr><td colspan='6'>sin lobbys</td></tr>";
+        const designs = data.designs || [];
+        document.querySelector("#adminDesigns tbody").innerHTML = designs.map(d => {
+            return "<tr><td>" + esc(d.name) + "</td><td>" + esc(d.owner) + "</td><td>" + esc(d.date) + "</td>" +
+                   "<td><a href='/api/designs/" + encodeURIComponent(d.id) + "' target='_blank'>VER</a> &nbsp;" +
+                   "<button onclick='adminAction(\"/api/designs/admin\",{id:" + JSON.stringify(d.id) +
+                   "})'>RECHAZAR</button></td></tr>";
+        }).join("") || "<tr><td colspan='4'>sin personajes publicos</td></tr>";
+        const maps = data.maps || [];
+        document.querySelector("#adminMaps tbody").innerHTML = maps.map(m => {
+            const stCls = m.status === "approved" ? "ok" : m.status === "pending" ? "mid" : "ingame";
+            const stTxt = m.status === "approved" ? "APROBADO" : m.status === "pending" ? "PENDIENTE" : "RECHAZADO";
+            return "<tr><td><b>" + esc(m.code) + "</b></td><td>" + esc(m.name) + "</td><td>" + esc(m.owner) + "</td>" +
+                   "<td class='" + stCls + "'>" + stTxt + "</td><td>" + esc(m.date) + "</td>" +
+                   "<td><a href='/api/maps/data/" + encodeURIComponent(m.code) + "/base' target='_blank'>VER</a> &nbsp;" +
+                   (m.status !== "approved" ? "<button onclick='adminAction(\"/api/maps/action\",{code:" + JSON.stringify(m.code) + ",action:\"approve\"})'>APROBAR</button> &nbsp;" : "") +
+                   (m.status !== "rejected" ? "<button onclick='adminAction(\"/api/maps/action\",{code:" + JSON.stringify(m.code) + ",action:\"reject\"})'>RECHAZAR</button> &nbsp;" : "") +
+                   "<button onclick='adminAction(\"/api/maps/action\",{code:" + JSON.stringify(m.code) + ",action:\"delete\"})'>BORRAR</button></td></tr>";
+        }).join("") || "<tr><td colspan='6'>sin mapas comunitarios</td></tr>";
     } catch (e) {
         document.getElementById("adminStatus").textContent = "acceso denegado o sin conexion";
     }

@@ -308,6 +308,19 @@ class _Draw:
             ctx.fill()
         ctx.globalAlpha = 1.0
 
+    def ellipse(self, surf, color, rect, width=0):
+        x, y, w, h = self._norm_rect(rect)
+        ctx = surf._ctx
+        self._style(ctx, color)
+        ctx.beginPath()
+        ctx.ellipse(x + w / 2.0, y + h / 2.0, w / 2.0, h / 2.0, 0, 0, 6.2831853)
+        if width:
+            ctx.lineWidth = width
+            ctx.stroke()
+        else:
+            ctx.fill()
+        ctx.globalAlpha = 1.0
+
     def line(self, surf, color, a, b, width=1):
         ctx = surf._ctx
         self._style(ctx, color)

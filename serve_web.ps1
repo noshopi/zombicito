@@ -19,6 +19,7 @@ $mime = @{
     ".sfc"  = "application/octet-stream"
     ".png"  = "image/png"
     ".jpg"  = "image/jpeg"
+    ".jpeg" = "image/jpeg"
     ".ico"  = "image/x-icon"
     ".exe"  = "application/octet-stream"
 }
@@ -39,6 +40,24 @@ $script:Lobbies = @{}   # keyed: web -> "web-<userId>", native -> "host|name"
 # global design gallery: players upload finished pixel-art characters
 $designsDir = Join-Path $root "designs"
 if (-not (Test-Path $designsDir)) { New-Item -ItemType Directory -Path $designsDir | Out-Null }
+# community maps: submissions with pending/approved/rejected status, short codes
+$mapsDir = Join-Path $root "community_maps"
+if (-not (Test-Path $mapsDir)) { New-Item -ItemType Directory -Path $mapsDir | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+function New-MapCode {
+    $chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    do {
+        $code = -join (1..4 | ForEach-Object { $chars[(Get-Random -Maximum 32)] })
+    } while (Test-Path (Join-Path $mapsDir ($code + ".json")))
+    return $code
+}
+
+function Get-MapMeta([string]$code) {
+    $p = Join-Path $mapsDir ($code + ".json")
+    if (-not (Test-Path $p)) { return $null }
+    try { return (Get-Content -LiteralPath $p -Raw | ConvertFrom-Json) } catch { return $null }
+}
 $usersFile = Join-Path $root "auth_users.json"
 $script:Users = @{}
 $script:Sessions = @{}
@@ -115,6 +134,30 @@ function Get-AuthUser([string]$headers) {
     } catch { return $null }
 }
 
+function Remove-StaleClients([hashtable]$l) {
+    if ($null -eq $l -or $null -eq $l.clients -or $l.clients.Count -eq 0) { return }
+    if ($null -eq $l.clientT) { $l.clientT = @{} }
+    $now = Get-Date
+    $dead = @($l.clients.Keys | Where-Object {
+        $ct = $l.clientT[[string]$_]
+        $null -eq $ct -or (($now - [datetime]$ct).TotalSeconds -gt 12)
+    })
+    if ($dead.Count -eq 0) { return }
+    foreach ($d in $dead) {
+        $slot = [int]$l.clients[[string]$d]
+        if ($slot -ge 0 -and $null -ne $l.kinds -and $slot -lt $l.kinds.Count) {
+            $l.kinds[$slot] = 0
+            if ($null -ne $l.bots -and $slot -lt $l.bots.Count) { $l.bots[$slot] = 0 }
+            if ($null -ne $l.ready -and $slot -lt $l.ready.Count) { $l.ready[$slot] = 0 }
+        }
+        $l.clients.Remove([string]$d)
+        $l.clientT.Remove([string]$d)
+    }
+    if ($null -ne $l.kinds) { $l.filled = @($l.kinds | Where-Object { [int]$_ -gt 0 }).Count }
+    $l.revision = [int]$l.revision + 1
+    $l.t = $now
+}
+
 Write-Host ""
 Write-Host "  ZAMN web page live at  http://zombicito.duckdns.org:$Port/" -ForegroundColor Green
 Write-Host "  bound to ALL local IPs - router: forward TCP $Port to this PC's LAN IP" -ForegroundColor DarkGray
@@ -126,7 +169,14 @@ while ($true) {
     try { $client = $listener.AcceptTcpClient() }
     catch {
         Start-Sleep -Milliseconds 200
-        if ($listener.Server -eq $null -or $listener.Server.IsBound -eq $false) { break }
+        try { $listener.Stop() } catch {}
+        try {
+            $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
+            $listener.Start()
+            Write-Host "listener recreated"
+        } catch {
+            Start-Sleep -Milliseconds 1000
+        }
         continue
     }
     try {
@@ -300,7 +350,24 @@ while ($true) {
                        players = $playerCount; bots = $botCount; ready = $readyCount;
                        clients = @($clients.Values | ForEach-Object { [int]$_ }) }
                 })
-                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; players = $players; lobbies = $lobbies } | ConvertTo-Json -Compress -Depth 6))
+                $id2email = @{}
+                foreach ($e in $script:Users.Keys) { $id2email[[string]$script:Users[$e].id] = $e }
+                $designs = @(Get-ChildItem -Path $designsDir -Filter "public__*.png" -ErrorAction SilentlyContinue | ForEach-Object {
+                    $parts = $_.BaseName -split "__", 4
+                    $ownerId = if ($parts.Count -ge 2) { $parts[1] } else { "" }
+                    @{ id = $_.Name; name = if ($parts.Count -ge 3) { $parts[2] } else { $_.BaseName };
+                       owner = if ($id2email.ContainsKey($ownerId)) { $id2email[$ownerId] } else { $ownerId };
+                       date = $_.LastWriteTime.ToString("dd/MM HH:mm") }
+                })
+                $maps = @(Get-ChildItem -Path $mapsDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+                    $m = Get-MapMeta ([IO.Path]::GetFileNameWithoutExtension($_.Name))
+                    if ($null -ne $m) {
+                        @{ code = [string]$m.code; name = [string]$m.name; owner = [string]$m.email;
+                           status = [string]$m.status; date = [string]$m.date }
+                    }
+                } | Where-Object { $_ })
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; players = $players; lobbies = $lobbies;
+                                                           designs = $designs; maps = $maps } | ConvertTo-Json -Compress -Depth 6))
                 $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
             }
         } elseif (($url -eq "/api/lobbies/create" -or $url -eq "/api/lobbies/heartbeat") -and $method -eq "POST") {
@@ -351,6 +418,7 @@ while ($true) {
                         requests = @(); chat = if ($null -ne $old) { @($old.chat) } else { @() };
                         snap = if ($null -ne $old) { [string]$old.snap } else { "" };
                         inputs = if ($null -ne $old) { $old.inputs } else { @{} };
+                        clientT = if ($null -ne $old -and $null -ne $old.clientT) { $old.clientT } else { @{} };
                         revision = $revision; t = Get-Date }
                     $script:Lobbies[$hostId] = $entry
                     if ($script:Players.ContainsKey([string]$user.id)) {
@@ -426,7 +494,8 @@ while ($true) {
                                                kinds = $kinds; bots = $bots; teams = @($o.teams);
                                                chars = @($o.chars); ready = $ready;
                                                clients = $clients; requests = @(); chat = $chat; snap = $snap;
-                                               inputs = $inputs; revision = $revision; t = Get-Date }
+                                               inputs = $inputs; clientT = if ($null -ne $old) { $old.clientT } else { @{} };
+                                               revision = $revision; t = Get-Date }
                 } catch {}
             }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
@@ -438,6 +507,7 @@ while ($true) {
             $viewer = Get-AuthUser $head
             foreach ($key in @($script:Lobbies.Keys)) {
                 $entry = $script:Lobbies[$key]
+                Remove-StaleClients $entry
                 $age = 0
                 if ($null -ne $entry -and $null -ne $entry.t -and $entry.t -is [DateTime]) {
                     $age = ((Get-Date) - $entry.t).TotalSeconds
@@ -562,6 +632,8 @@ while ($true) {
                             $script:Players[$presenceId].lastSeen = Get-Date
                             $script:Players[$presenceId].ping = [int]$o.ready
                         }
+                        if ($null -eq $l.clientT) { $l.clientT = @{} }
+                        $l.clientT[$client] = Get-Date
                         $ok2 = $true
                     } elseif ($action -eq "input") {
                         $l.inputs[$client] = [int]$o.slot
@@ -623,6 +695,7 @@ while ($true) {
             }
             $l = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
             if ($null -ne $l) {
+                Remove-StaleClients $l
                 $json = $l | ConvertTo-Json -Compress -Depth 6
                 $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 $ct = "application/json; charset=utf-8"; $status = "200 OK"
@@ -734,6 +807,191 @@ while ($true) {
             $ct = "application/json; charset=utf-8"
             $status = "200 OK"
             $handled = $true
+        } elseif ($url -eq "/api/maps/submit" -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $user = Get-AuthUser $head
+            $code = ""
+            if ($user -and $user.role -ne "admin") {
+                try {
+                    $bi = $head.IndexOf("`r`n`r`n")
+                    $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                    $nm = ([string]$o.name -replace "[^A-Za-z0-9 _\-]", "_").Trim()
+                    if ($nm.Length -gt 24) { $nm = $nm.Substring(0, 24) }
+                    $base64 = [string]$o.base
+                    $upper64 = [string]$o.upper
+                    if ($nm -ne "" -and $base64.Length -gt 100 -and $upper64.Length -gt 100) {
+                        $code = New-MapCode
+                        [IO.File]::WriteAllBytes((Join-Path $mapsDir ($code + "_base.png")), [Convert]::FromBase64String($base64))
+                        [IO.File]::WriteAllBytes((Join-Path $mapsDir ($code + "_upper.png")), [Convert]::FromBase64String($upper64))
+                        $layout = @{}
+                        if ($o.layout) {
+                            foreach ($p in $o.layout.psobject.Properties) {
+                                $v = $p.Value
+                                if ($p.Name -in @("spawns","victims","medkits","bounce") -and $v -is [System.Array]) {
+                                    if ($v.Count -gt 0 -and $v[0] -isnot [System.Array]) { $v = ,@($v) }
+                                    $layout[$p.Name] = @($v)
+                                } else {
+                                    $layout[$p.Name] = $v
+                                }
+                            }
+                        }
+                        $meta = @{ code = $code; name = $nm; owner = [string]$user.id;
+                                   email = [string]$user.email; status = "pending";
+                                   layout = $layout; date = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
+                        [IO.File]::WriteAllText((Join-Path $mapsDir ($code + ".json")),
+                                                ($meta | ConvertTo-Json -Compress -Depth 8), $utf8NoBom)
+                    }
+                } catch {}
+            }
+            if ($code) {
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; code = $code } | ConvertTo-Json -Compress))
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"
+            } else {
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $false; error = "SUBMIT_FAILED" } | ConvertTo-Json -Compress))
+                $ct = "application/json; charset=utf-8"
+                $status = if ($user) { "400 Bad Request" } else { "401 Unauthorized" }
+            }
+            $handled = $true
+        } elseif ($url -eq "/api/maps/admin") {
+            $user = Get-AuthUser $head
+            if (-not $user -or $user.role -ne "admin") {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"FORBIDDEN"}')
+                $ct = "application/json; charset=utf-8"; $status = "403 Forbidden"; $handled = $true
+            } else {
+                $list = @(Get-ChildItem -Path $mapsDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+                    $m = Get-MapMeta ([IO.Path]::GetFileNameWithoutExtension($_.Name))
+                    if ($null -ne $m) {
+                        @{ code = [string]$m.code; name = [string]$m.name; owner = [string]$m.email;
+                           status = [string]$m.status; date = [string]$m.date }
+                    }
+                } | Where-Object { $_ })
+                $json = $list | ConvertTo-Json -Compress
+                if ($null -eq $json) { $json = "[]" }
+                elseif ($json[0] -ne '[') { $json = "[" + $json + "]" }
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+            }
+        } elseif ($url -eq "/api/maps/action" -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $user = Get-AuthUser $head
+            if (-not $user -or $user.role -ne "admin") {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"FORBIDDEN"}')
+                $ct = "application/json; charset=utf-8"; $status = "403 Forbidden"; $handled = $true
+            } else {
+                $ok2 = $false
+                try {
+                    $bi = $head.IndexOf("`r`n`r`n")
+                    $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                    $code = ([string]$o.code).ToUpper()
+                    $action = [string]$o.action
+                    $metaPath = Join-Path $mapsDir ($code + ".json")
+                    if ($code -match "^[A-Z2-9]{4}$" -and (Test-Path $metaPath)) {
+                        if ($action -eq "delete") {
+                            Remove-Item -LiteralPath $metaPath -Force
+                            Remove-Item -LiteralPath (Join-Path $mapsDir ($code + "_base.png")) -Force -ErrorAction SilentlyContinue
+                            Remove-Item -LiteralPath (Join-Path $mapsDir ($code + "_upper.png")) -Force -ErrorAction SilentlyContinue
+                            $ok2 = $true
+                        } else {
+                            $m = Get-MapMeta $code
+                            if ($null -ne $m) {
+                                if ($action -eq "approve") { $m.status = "approved" }
+                                elseif ($action -eq "reject") { $m.status = "rejected" }
+                                [IO.File]::WriteAllText($metaPath, ($m | ConvertTo-Json -Compress -Depth 8), $utf8NoBom)
+                                $ok2 = $true
+                            }
+                        }
+                    }
+                } catch {}
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $ok2 } | ConvertTo-Json -Compress))
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+            }
+        } elseif ($url -eq "/api/maps/catalog") {
+            $list = @(Get-ChildItem -Path $mapsDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+                $m = Get-MapMeta ([IO.Path]::GetFileNameWithoutExtension($_.Name))
+                if ($null -ne $m -and [string]$m.status -eq "approved") {
+                    @{ code = [string]$m.code; name = [string]$m.name }
+                }
+            } | Where-Object { $_ })
+            $json = $list | ConvertTo-Json -Compress
+            if ($null -eq $json) { $json = "[]" }
+            elseif ($json[0] -ne '[') { $json = "[" + $json + "]" }
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+            $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+        } elseif ($url -like "/api/maps/data/*") {
+            $user = Get-AuthUser $head
+            if (-not $user) {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"UNAUTHORIZED"}')
+                $ct = "application/json; charset=utf-8"; $status = "401 Unauthorized"; $handled = $true
+            } else {
+                $rest = [Uri]::UnescapeDataString($url.Substring("/api/maps/data/".Length))
+                $parts = $rest -split "/", 2
+                $code = ([string]$parts[0]).ToUpper()
+                $part = if ($parts.Count -gt 1) { [string]$parts[1] } else { "meta" }
+                $m = Get-MapMeta $code
+                if ($null -eq $m -or $code -notmatch "^[A-Z2-9]{4}$") {
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes("not found")
+                    $ct = "text/plain; charset=utf-8"; $status = "404 Not Found"; $handled = $true
+                } elseif ($part -eq "base") {
+                    $bytes = [IO.File]::ReadAllBytes((Join-Path $mapsDir ($code + "_base.png")))
+                    $ct = "image/png"; $status = "200 OK"; $handled = $true
+                } elseif ($part -eq "upper") {
+                    $bytes = [IO.File]::ReadAllBytes((Join-Path $mapsDir ($code + "_upper.png")))
+                    $ct = "image/png"; $status = "200 OK"; $handled = $true
+                } elseif ($part -eq "layout") {
+                    $json = if ($null -ne $m.layout) { $m.layout | ConvertTo-Json -Compress -Depth 8 } else { "{}" }
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                    $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+                } else {
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes(($m | ConvertTo-Json -Compress -Depth 8))
+                    $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+                }
+            }
+        } elseif ($url -eq "/api/designs/admin" -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $user = Get-AuthUser $head
+            if (-not $user -or $user.role -ne "admin") {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"FORBIDDEN"}')
+                $ct = "application/json; charset=utf-8"; $status = "403 Forbidden"; $handled = $true
+            } else {
+                $ok2 = $false
+                try {
+                    $bi = $head.IndexOf("`r`n`r`n")
+                    $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                    $id = [IO.Path]::GetFileName([string]$o.id)
+                    $src = Join-Path $designsDir $id
+                    if ($id.StartsWith("public__") -and (Test-Path $src -PathType Leaf)) {
+                        $newName = $id.Substring("public__".Length)
+                        Move-Item -LiteralPath $src -Destination (Join-Path $designsDir $newName) -Force
+                        $ok2 = $true
+                    }
+                } catch {}
+                $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $ok2 } | ConvertTo-Json -Compress))
+                $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
+            }
         } elseif ($url -like "/api/designs/*") {
             $f = Join-Path $designsDir ([IO.Path]::GetFileName([Uri]::UnescapeDataString($url.Substring("/api/designs/".Length))))
             $full2 = [IO.Path]::GetFullPath($f)
@@ -766,7 +1024,9 @@ while ($true) {
         if ($method -ne "HEAD") { $stream.Write($bytes, 0, $bytes.Length) }
         $stream.Flush()
     } catch {
-        Add-Content -Path (Join-Path $root "server_err.log") -Value ("[ERR " + (Get-Date) + "] " + $_.Exception.ToString() + " POS=" + $_.InvocationInfo.PositionMessage + " URL=" + $url)
+        try {
+            Add-Content -Path (Join-Path $root "server_err.log") -Value ("[ERR " + (Get-Date) + "] " + $_.Exception.ToString() + " POS=" + $_.InvocationInfo.PositionMessage + " URL=" + $url)
+        } catch {}
     }
     if ($client) { try { $client.Close() } catch {} }
 }

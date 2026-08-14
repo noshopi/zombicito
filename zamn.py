@@ -11,6 +11,7 @@ import socket
 import struct
 import io
 import json
+import re
 import base64
 import threading
 import urllib.request
@@ -112,7 +113,9 @@ WORLD_TINT = [(110, 235, 70), (60, 255, 200), (255, 180, 60), (90, 220, 255), (2
 WORLD_LAYOUT = [(VSPOTS_DAY, TSPAWN_DAY, MEDKITS_DAY), (VSPOTS2, TSPAWN2, MEDKITS2),
                 (VSPOTS3, TSPAWN3, MEDKITS3), (VSPOTS4, TSPAWN4, MEDKITS4),
                 (VSPOTS5, TSPAWN5, MEDKITS5), (VSPOTS6, TSPAWN6, MEDKITS6)]
+WORLD_LAYOUT = list(WORLD_LAYOUT)
 WORLD_COUNT = len(WORLD_NAMES)
+WORLD_OFFICIAL = WORLD_COUNT
 BOUNCE_LAYOUT = [[(720, 320)], [(1480, 320)], [(720, 980)],
                  [(1480, 980)], [(720, 720)], [(1480, 720)]]
 gWorldEditSel = 5
@@ -121,6 +124,7 @@ gWorldEditLayer = "upper"
 gWorldEditorBase = None
 gWorldEditorUpper = None
 gWorldEditorDirty = False
+COMMUNITY_CODES = []   # community map codes loaded, in order (appended after official worlds)
 
 # frame rects (mirror sprites.h, jitter-free recentered sheets)
 ZEKE_DOWN = [(86, 5, 16, 36), (108, 4, 16, 37), (128, 4, 16, 37), (148, 4, 16, 37)]
@@ -895,6 +899,26 @@ def expand_world(tex, walk, connect=True):
     return tex, connect_walk_regions(expanded) if connect else expanded
 
 
+def walk_mask_from_upper(path):
+    """Build the walk mask from the upper layer: any opaque pixel = wall."""
+    surf = pygame.image.load(path).convert_alpha()
+    sw, sh = surf.get_size()
+    tw, th = sw // TS, sh // TS
+    buf = pygame.image.tostring(surf, "RGBA")
+    mask = bytearray(tw * th)
+    for ty in range(th):
+        y0 = ty * TS
+        for tx in range(tw):
+            wall = False
+            for dy in range(TS):
+                start = ((y0 + dy) * sw + tx * TS) * 4 + 3
+                if max(buf[start:start + TS * 4:4]) > 200:
+                    wall = True
+                    break
+            mask[ty * tw + tx] = 0 if wall else 1
+    return mask
+
+
 def connect_walk_regions(mask):
     """Bridge disconnected walkable islands so every map region can be reached."""
     seen = bytearray(len(mask))
@@ -938,6 +962,199 @@ def build_world_variants():
         walkWorlds.append(walk)
 
 
+def community_map_load(code, entry):
+    """Load one community map into the world tables (approved or test)."""
+    global WORLD_NAMES, WORLD_TINT, WORLD_LAYOUT, WORLD_COUNT, texWorlds, walkWorlds, upperWorlds
+    global BOUNCE_LAYOUT, gWorldExpand, COMMUNITY_CODES
+    code = str(code).upper()
+    try:
+        if code in COMMUNITY_CODES:
+            return True
+        image_path = os.path.join(ASSETS, "map%s_snes.png" % code)
+        upper_path = os.path.join(ASSETS, "map%s_snes_upper.png" % code)
+        walk_path = os.path.join(ASSETS, "walk%s_snes.bin" % code)
+        if not os.path.exists(image_path):
+            return False
+        image = pygame.image.load(image_path).convert()
+        walk = None
+        if not IS_WEB and os.path.exists(upper_path):
+            walk = walk_mask_from_upper(upper_path)
+        if walk is None and os.path.exists(walk_path):
+            with open(walk_path, "rb") as f:
+                walk = bytearray(f.read())
+        if walk is None:
+            return False
+        tex, wmask = expand_world(image, walk, connect=False)
+        layout = entry.get("layout") if isinstance(entry, dict) else {}
+        if not isinstance(layout, dict):
+            layout = {}
+        name = str(entry.get("name") or "MAPA %s" % code)[:24]
+        def tuples(lst):
+            out = []
+            for v in (lst or []):
+                try:
+                    out.append(tuple(float(x) for x in v))
+                except Exception:
+                    pass
+            return out
+        victims = tuples(layout.get("victims"))
+        spawns = tuples(layout.get("spawns"))
+        medkits = tuples(layout.get("medkits"))
+        bounce = tuples(layout.get("bounce"))
+        if not bounce:
+            bounce = [(720.0, 320.0)]
+        if not spawns:
+            spawns = [(300.0, 300.0)]
+        if not victims:
+            victims = [(400.0, 400.0, 1)]
+        victims = [(v[0], v[1], int(v[2])) for v in victims]
+        while len(spawns) < MAX_PLAYERS:
+            spawns.append(spawns[len(spawns) % len(spawns)])
+        while len(victims) < MAX_VICTIMS:
+            victims.append(victims[len(victims) % len(victims)])
+        while len(medkits) < MAX_MED:
+            medkits.append(medkits[len(medkits) % len(medkits)])
+        WORLD_NAMES.append(name)
+        WORLD_TINT.append((255, 215, 90))
+        WORLD_LAYOUT.append((victims, spawns, medkits))
+        BOUNCE_LAYOUT.append([list(b) for b in bounce])
+        texWorlds.append(tex)
+        walkWorlds.append(wmask)
+        if os.path.exists(upper_path):
+            try:
+                up = pygame.image.load(upper_path).convert_alpha()
+                upperWorlds.append(pygame.transform.scale(up, (MAP_W, MAP_H)))
+            except Exception:
+                upperWorlds.append(pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA))
+        else:
+            upperWorlds.append(pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA))
+        COMMUNITY_CODES.append(code)
+        WORLD_COUNT = len(WORLD_NAMES)
+        while len(gWorldExpand) < WORLD_COUNT:
+            gWorldExpand.append(0)
+        return True
+    except Exception:
+        traceback.print_exc()
+        return False
+
+
+def load_community_maps():
+    try:
+        p = os.path.join(ASSETS, "community.json")
+        if not os.path.exists(p):
+            return
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return
+        for entry in data:
+            code = str(entry.get("code", "")).upper() if isinstance(entry, dict) else ""
+            if re.match(r"^[A-Z2-9]{4}$", code):
+                community_map_load(code, entry)
+    except Exception:
+        pass
+
+
+def community_map_start(code):
+    global gSt, gConsoleOpen, gConsoleInput, gLevelSel, gLocalSlot, gMySlot, gTeamCount
+    global gHosting, gLocalHost, gNetPhase, gNetStarted
+    if code not in COMMUNITY_CODES:
+        return
+    idx = WORLD_OFFICIAL + COMMUNITY_CODES.index(code)
+    net_close()
+    if IS_WEB:
+        gHosting = 1
+        gLocalHost = 1
+        gNetPhase = 1
+        gNetStarted = 0
+    gLevelSel = idx
+    gTeamCount = 4
+    gMySlot = 0
+    gLocalSlot = 0
+    for i in range(MAX_PLAYERS):
+        gKinds[i] = 0
+        gBotEnabled[i] = 1
+        gLobTeam[i] = i // 3
+        gLobChar[i] = i % 7
+        gLobReady[i] = 1
+    gBotEnabled[0] = 0
+    gKinds[0] = 1
+    gLobChar[0] = gLobChar[0] % 9
+    try:
+        game_reset(MODE_TEAMS, -1)
+        gSt = ST_PLAY
+    except Exception as exc:
+        traceback.print_exc()
+        try:
+            with open("test_error.log", "a", encoding="utf-8") as log:
+                log.write("test %s: %r\n" % (code, exc))
+                traceback.print_exc(file=log)
+        except OSError:
+            pass
+        gSt = ST_MENU
+        msg("ERROR TEST %s: REVISA test_error.log" % code)
+    gConsoleOpen = False
+    gConsoleInput = ""
+
+
+def community_map_ready(code):
+    code = str(code).upper()
+    try:
+        entry = None
+        with open(os.path.join(ASSETS, "community.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            for e in data:
+                if isinstance(e, dict) and str(e.get("code", "")).upper() == code:
+                    entry = e
+                    break
+        if entry is not None:
+            if community_map_load(code, entry):
+                community_map_start(code)
+    except Exception:
+        pass
+
+
+def community_map_fetch(code):
+    """Native path: download a community map by code from the server."""
+    cookie = ""
+    try:
+        user = os.environ.get("ZAMN_TEST_USER", "")
+        pw = os.environ.get("ZAMN_TEST_PASS", "")
+        if user and pw:
+            req = urllib.request.Request(SITE + "/api/auth/login",
+                                         data=json.dumps({"email": user, "password": pw,
+                                                          "remember": False}).encode("utf-8"),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                setc = r.headers.get("Set-Cookie") or ""
+                cookie = setc.split(";")[0]
+        def dl(part, dest):
+            req = urllib.request.Request(SITE + "/api/maps/data/%s/%s" % (code, part),
+                                         headers={"Cookie": cookie})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                with open(dest, "wb") as f:
+                    f.write(r.read())
+        dl("base", os.path.join(ASSETS, "map%s_snes.png" % code))
+        dl("upper", os.path.join(ASSETS, "map%s_snes_upper.png" % code))
+        with urllib.request.urlopen(urllib.request.Request(SITE + "/api/maps/data/%s/layout" % code,
+                                                           headers={"Cookie": cookie}), timeout=30) as r:
+            layout = json.loads(r.read().decode("utf-8"))
+        entry = {"code": code, "name": "MAPA %s" % code, "layout": layout}
+        cj = os.path.join(ASSETS, "community.json")
+        arr = []
+        if os.path.exists(cj):
+            with open(cj, encoding="utf-8") as f:
+                arr = json.load(f)
+        arr = [e for e in arr if str(e.get("code", "")).upper() != code]
+        arr.append(entry)
+        with open(cj, "w", encoding="utf-8") as f:
+            json.dump(arr, f)
+        return community_map_load(code, entry)
+    except Exception:
+        return False
+
+
 def world_upper():
     if upperWorlds:
         return upperWorlds[gLevelSel % len(upperWorlds)]
@@ -969,11 +1186,17 @@ def load_assets():
     def load_world_file(number, fallback_image, fallback_walk):
         image_path = os.path.join(ASSETS, "level%d_snes.png" % number)
         walk_path = os.path.join(ASSETS, "walk%d_snes.bin" % number)
-        if os.path.exists(image_path) and os.path.exists(walk_path):
+        upper_path = os.path.join(ASSETS, "level%d_snes_upper.png" % number)
+        if os.path.exists(image_path):
             image = pygame.image.load(image_path).convert()
-            with open(walk_path, "rb") as f:
-                walk = bytearray(f.read())
-            return expand_world(image, walk, connect=False)
+            walk = None
+            if not IS_WEB and os.path.exists(upper_path):
+                walk = walk_mask_from_upper(upper_path)
+            if walk is None and os.path.exists(walk_path):
+                with open(walk_path, "rb") as f:
+                    walk = bytearray(f.read())
+            if walk is not None:
+                return expand_world(image, walk, connect=False)
         return fallback_image, fallback_walk
 
     base_image = pygame.image.load(os.path.join(ASSETS, "level_big.png")).convert()
@@ -4114,9 +4337,10 @@ def render_lobby():
         draw_text(vbuf, 22, 158, 1, (150, 140, 160), tr("create_bots"))
         # Six direct stage buttons and a preview of the selected SNES map.
         sc_panel(vbuf, (252, 34, 216, 142), (16, 9, 24), g, 6)
+        row_h = min(23, max(13, 132 // ((WORLD_COUNT + 1) // 2)))
         for i in range(WORLD_COUNT):
             col, row = i % 2, i // 2
-            rx, ry = 260 + col * 104, 42 + row * 23
+            rx, ry = 260 + col * 104, 42 + row * row_h
             selected = i == gLevelSel
             vbuf.fill((40, 25, 55) if selected else (14, 8, 26), (rx, ry, 96, 18))
             pygame.draw.rect(vbuf, WORLD_TINT[i] if selected else (100, 75, 110),
@@ -4324,8 +4548,9 @@ def render_worlds():
     render_bg_sc()
     sc_title(VIEW_W // 2, 22, tr("menu_worlds"), (200, 160, 66), 3)
     sc_panel(vbuf, (12, 44, 132, 174), (14, 8, 26), _gold, 8)
+    step = 25 if WORLD_COUNT <= 6 else max(13, 170 // WORLD_COUNT)
     for i in range(WORLD_COUNT):
-        y = 52 + i * 25
+        y = 52 + i * step
         selected = i == gWorldEditSel
         if selected:
             vbuf.fill((40, 25, 55), (20, y - 2, 116, 20))
@@ -4349,8 +4574,9 @@ def render_worlds():
 
 def worlds_click(mx, my):
     global gWorldEditSel, _world_preview_cache, _world_preview_key, gSt
+    step = 25 if WORLD_COUNT <= 6 else max(13, 170 // WORLD_COUNT)
     for i in range(WORLD_COUNT):
-        y = 52 + i * 25
+        y = 52 + i * step
         if 20 <= mx <= 136 and y - 2 <= my <= y + 18:
             gWorldEditSel = i
             _world_preview_cache = None
@@ -4548,6 +4774,23 @@ def execute_console_command(command):
         return
     parts = cmd.split()
     if len(parts) == 2 and parts[0] == "test":
+        t = parts[1].upper()
+        if re.match(r"^[A-Z2-9]{4}$", t):
+            if t not in COMMUNITY_CODES:
+                if IS_WEB:
+                    try:
+                        from js import window
+                        window._testCommunityMap(t)
+                        gConsoleOpen = False
+                        gConsoleInput = ""
+                        return
+                    except Exception:
+                        return
+                else:
+                    if not community_map_fetch(t):
+                        return
+            community_map_start(t)
+            return
         try:
             world = int(parts[1])
         except ValueError:
@@ -4589,7 +4832,7 @@ def render_console_overlay():
         return
     vbuf.fill((8, 5, 16), (18, 18, VIEW_W - 36, 42))
     pygame.draw.rect(vbuf, (200, 160, 66), (18, 18, VIEW_W - 36, 42), 1)
-    draw_text(vbuf, 28, 26, 1, (110, 235, 70), "CONSOLE | test 1-6 / menu")
+    draw_text(vbuf, 28, 26, 1, (110, 235, 70), "CONSOLE | test 1-6 o CODIGO (mapas comunitarios) / menu")
     draw_text(vbuf, 28, 42, 1, (255, 230, 120), ">" + gConsoleInput + "_")
 
 
@@ -6558,6 +6801,7 @@ def main():
 
     gWin = setup_window(hidden)
     load_assets()
+    load_community_maps()
     if not hidden and not gServerMode:
         init_audio()
 
@@ -6686,6 +6930,7 @@ def web_boot():
     gWin = setup_window(False)
     _web_clock = pygame.time.Clock()
     load_assets()
+    load_community_maps()
     init_audio()
     gSt = ST_MENU
     gMenuT = 1.2
@@ -7318,7 +7563,7 @@ def frame(clock=None, auto=0):
                 host_send_beacon()
         gAnnounceT -= dt
         if gAnnounceT <= 0:
-            gAnnounceT = 3.0
+            gAnnounceT = 0.8 if IS_WEB else 3.0
             web_host_announce() if IS_WEB else host_announce()
 
     # Browsers have no UDP socket, so their lobby directory is polled here.
