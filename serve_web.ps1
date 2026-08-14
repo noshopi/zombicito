@@ -31,8 +31,15 @@ $virtual = @{
 }
 
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
-try { $listener.Start() }
-catch { Write-Host "Could not bind port $Port (is it in use?)."; exit 1 }
+$listener.ExclusiveAddressUse = $false
+$bound = $false
+for ($try = 0; $try -lt 60; $try++) {
+    try { $listener.Start(); $bound = $true; break }
+    catch {
+        if ($try -eq 59) { Write-Host "Could not bind port $Port (is it in use?)."; exit 1 }
+        Start-Sleep -Seconds 5
+    }
+}
 
 # lobby directory relay: game servers POST their status, browsers GET the list
 $script:Lobbies = @{}   # keyed: web -> "web-<userId>", native -> "host|name"
@@ -140,7 +147,7 @@ function Remove-StaleClients([hashtable]$l) {
     $now = Get-Date
     $dead = @($l.clients.Keys | Where-Object {
         $ct = $l.clientT[[string]$_]
-        $null -eq $ct -or (($now - [datetime]$ct).TotalSeconds -gt 12)
+        ($null -ne $ct -and ($now - [datetime]$ct).TotalSeconds -gt 12)
     })
     if ($dead.Count -eq 0) { return }
     foreach ($d in $dead) {
@@ -172,6 +179,7 @@ while ($true) {
         try { $listener.Stop() } catch {}
         try {
             $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
+            $listener.ExclusiveAddressUse = $false
             $listener.Start()
             Write-Host "listener recreated"
         } catch {

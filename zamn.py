@@ -6994,7 +6994,7 @@ def web_boot():
 
 
 def frame(clock=None, auto=0):
-    global gFrameNo, gRunning, gSnapT, gInputSeq, gMenuT, gZomWalkT, gNetTime
+    global gFrameNo, gRunning, gSnapT, gInputSeq, gMenuT, gZomWalkT, gNetTime, gLevelSel, gEdRefTex
     global gSt, gMenuIdx, gLobStage, gLobRow, gLobIp, gLobIpTyping, gTeamCount, gLobSelRow
     global gLobTeam, gLobChar, gNetStarted, gMySlot, gLocalSlot, gLobbyGot, gJoinReqT
     global gJoinStartT, gLobSel, gLobCount, gOptIdx, gFullscreen, gSmooth, gVolume

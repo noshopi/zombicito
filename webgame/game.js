@@ -295,6 +295,10 @@ window._recolorCustomCanvas = function (bmp, params, zeke_rects, julie_rects, ze
 };
 
 // ---- lobby directory relay polling ----
+window._toPlain = function (o) {
+    if (o && typeof o.toJs === "function") return o.toJs({ dict_converter: Object.fromEntries });
+    return o;
+};
 window._lobbies = [];
 window._apiPing = 0;
 window._announceLobby = async function (lobby) {
@@ -302,7 +306,7 @@ window._announceLobby = async function (lobby) {
         await fetch("/api/announce", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(lobby),
+            body: JSON.stringify(window._toPlain(lobby)),
             cache: "no-store"
         });
     } catch (e) {
@@ -313,7 +317,7 @@ window._createWebLobby = async function (lobby) {
     try {
         const r = await fetch("/api/lobbies/create", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(lobby), credentials: "same-origin", cache: "no-store"
+            body: JSON.stringify(window._toPlain(lobby)), credentials: "same-origin", cache: "no-store"
         });
         return await r.json();
     } catch (e) {
@@ -324,7 +328,7 @@ window._heartbeatWebLobby = async function (lobby) {
     try {
         await fetch("/api/lobbies/heartbeat", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(lobby), credentials: "same-origin", cache: "no-store"
+            body: JSON.stringify(window._toPlain(lobby)), credentials: "same-origin", cache: "no-store"
         });
     } catch (e) {}
 };
@@ -649,7 +653,7 @@ async function boot() {
         statusEl.textContent = "cargando modulos python...";
         const files = ["/zamn_font.py", "/zamn.py"];
         for (const f of files) {
-            const src = await (await fetch(f + "?v=110")).text();
+            const src = await (await fetch(f + "?v=111")).text();
             pyodide.FS.writeFile("/" + f.split("/").pop(), src);
         }
         const shim = await (await fetch("pygame.py?v=106")).text();
