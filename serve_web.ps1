@@ -243,7 +243,11 @@ while ($true) {
                        ping = $ms }
                 })
                 foreach ($key in @($script:Lobbies.Keys)) {
-                    if (((Get-Date) - $script:Lobbies[$key].t).TotalSeconds -ge 8) { $script:Lobbies.Remove($key) }
+                    $entry = $script:Lobbies[$key]
+                    if (((Get-Date) - $entry.t).TotalSeconds -ge 8 -or
+                        ([int]$entry.filled -le 0 -and [int]$entry.started -eq 0)) {
+                        $script:Lobbies.Remove($key)
+                    }
                 }
                 $lobbies = @($script:Lobbies.Values | ForEach-Object {
                     $clients = if ($_.clients) { $_.clients } else { @{} }
@@ -330,7 +334,11 @@ while ($true) {
             $handled = $true
         } elseif ($url -eq "/api/lobbies") {
             foreach ($key in @($script:Lobbies.Keys)) {
-                if (((Get-Date) - $script:Lobbies[$key].t).TotalSeconds -ge 8) { $script:Lobbies.Remove($key) }
+                $entry = $script:Lobbies[$key]
+                if (((Get-Date) - $entry.t).TotalSeconds -ge 8 -or
+                    ([int]$entry.filled -le 0 -and [int]$entry.started -eq 0)) {
+                    $script:Lobbies.Remove($key)
+                }
             }
             $list = @($script:Lobbies.Values | ForEach-Object {
                 $details = @()

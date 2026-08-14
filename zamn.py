@@ -1934,6 +1934,8 @@ def next_free_human_slot():
 
 def lobby_upsert(from_addr, b):
     global gLobCount
+    if b[3] <= 0 and not b[2]:
+        return
     i = 0
     while i < gLobCount:
         if gLobList[i].addr == from_addr[0] and gLobList[i].port == from_addr[1]:
@@ -3783,6 +3785,8 @@ def _web_lobby_ingest():
             o = arr[i]
             host = str(o.host) or ""
             if not host.startswith("web-"):
+                continue
+            if int(o.filled) <= 0 and not int(o.started):
                 continue
             e = gLobList[gLobCount]
             e.name = str(o.name) or "?"
@@ -5940,7 +5944,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v97")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v98")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6106,6 +6110,8 @@ def directory_poll():
         for row in rows:
             host = str(row.get("host") or "")
             name = str(row.get("name") or host or "LOBBY")
+            if int(row.get("filled", 0)) <= 0 and not int(row.get("started", 0)):
+                continue
             found = -1
             for i in range(gLobCount):
                 if gLobList[i].host == host and gLobList[i].name == name:
