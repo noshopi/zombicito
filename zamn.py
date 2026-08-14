@@ -1842,10 +1842,10 @@ def net_host_open():
     for i in range(MAX_PLAYERS):
         gKinds[i] = 0
         gLobTeam[i] = i // 3
-        gBotEnabled[i] = 1
+        gBotEnabled[i] = 0
         if i != 0:
             gLobChar[i] = i % 7
-        gLobReady[i] = 1
+        gLobReady[i] = 0
     gKinds[0] = 1
     gMySlot = 0
     gLobReady[0] = 0
@@ -1864,10 +1864,10 @@ def host_open_local():
     for i in range(MAX_PLAYERS):
         gKinds[i] = 0
         gLobTeam[i] = i // 3
-        gBotEnabled[i] = 1
+        gBotEnabled[i] = 0
         if i != 0:
             gLobChar[i] = i % 7
-        gLobReady[i] = 1
+        gLobReady[i] = 0
     gKinds[0] = 1
     gMySlot = 0
     gLobReady[0] = 0
@@ -4707,9 +4707,19 @@ def lobby_click(mx, my):
             if not (bx <= mx <= bx + 114):
                 continue
             for m in range(3):
-                    sy = 28 + m * 36
-                    if sy - 5 <= my <= sy + 31:
-                        gLobSelRow = t * 3 + m
+                sy = 28 + m * 36
+                if sy - 5 <= my <= sy + 31:
+                    gLobSelRow = t * 3 + m
+                    if (gLobStage == 1 and gMySlot == 0 and gKinds[gLobSelRow] == 0 and
+                            bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28):
+                        gBotEnabled[gLobSelRow] ^= 1
+                        gLobReady[gLobSelRow] = 1 if gBotEnabled[gLobSelRow] else 0
+                        if IS_WEB:
+                            web_host_announce()
+                        elif gSock is not None:
+                            host_broadcast_lobby()
+                        play_snd(SND_MENU)
+                        return
                     if gLobSelRow == gMySlot and bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28:
                         gLobReady[gMySlot] ^= 1
                         if gLobStage == 2 and IS_WEB:
