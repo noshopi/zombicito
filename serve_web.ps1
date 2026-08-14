@@ -282,6 +282,54 @@ while ($true) {
                 $bytes = [Text.Encoding]::UTF8.GetBytes((@{ ok = $true; players = $players; lobbies = $lobbies } | ConvertTo-Json -Compress -Depth 6))
                 $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
             }
+        } elseif (($url -eq "/api/lobbies/create" -or $url -eq "/api/lobbies/heartbeat") -and $method -eq "POST") {
+            $cl = 0
+            foreach ($hl in ($head -split "`r`n")) {
+                if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
+            }
+            while ($head.IndexOf("`r`n`r`n") -lt 0 -or ($head.Length -lt $head.IndexOf("`r`n`r`n") + 4 + $cl)) {
+                $n = $stream.Read($buf, 0, 4096)
+                if ($n -le 0) { break }
+                $head += [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            }
+            $user = Get-AuthUser $head
+            if (-not $user) {
+                $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"UNAUTHORIZED"}')
+                $ct = "application/json; charset=utf-8"; $status = "401 Unauthorized"; $handled = $true
+            } else {
+                try {
+                    $bi = $head.IndexOf("`r`n`r`n")
+                    $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
+                    $hostId = "web-" + [string]$user.id
+                    $old = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
+                    if ($url -eq "/api/lobbies/heartbeat" -and $null -eq $old) {
+                        throw "LOBBY_NOT_FOUND"
+                    }
+                    $slots = [int]$o.slots
+                    $kinds = @($o.kinds); $bots = @($o.bots); $ready = @($o.ready)
+                    while ($kinds.Count -lt $slots) { $kinds += 0 }
+                    while ($bots.Count -lt $slots) { $bots += 0 }
+                    while ($ready.Count -lt $slots) { $ready += 0 }
+                    $clients = @{}
+                    if ($null -ne $old -and $old.clients) { foreach ($p in $old.clients.GetEnumerator()) { $clients[[string]$p.Key] = [int]$p.Value } }
+                    $revision = if ($null -ne $old) { [int]$old.revision } else { 0 }
+                    $entry = @{ name = [string]$o.name; host = $hostId; owner = $hostId; region = 1;
+                        filled = @($kinds | Where-Object { [int]$_ -gt 0 }).Count; slots = $slots;
+                        world = [int]$o.world; started = [int]$o.started; kinds = $kinds; bots = $bots;
+                        teams = @($o.teams); chars = @($o.chars); ready = $ready; clients = $clients;
+                        requests = @(); chat = if ($null -ne $old) { @($old.chat) } else { @() };
+                        snap = if ($null -ne $old) { [string]$old.snap } else { "" };
+                        inputs = if ($null -ne $old) { $old.inputs } else { @{} };
+                        revision = $revision; t = Get-Date }
+                    $script:Lobbies[$hostId] = $entry
+                    $bytes = [Text.Encoding]::UTF8.GetBytes((@{ok=$true; state=$entry} | ConvertTo-Json -Compress -Depth 6))
+                    $ct = "application/json; charset=utf-8"; $status = "200 OK"
+                } catch {
+                    $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"CREATE_FAILED"}')
+                    $ct = "application/json; charset=utf-8"; $status = "400 Bad Request"
+                }
+                $handled = $true
+            }
         } elseif ($url -eq "/api/announce" -and $method -eq "POST") {
             # read POST body (Content-Length)
             $cl = 0

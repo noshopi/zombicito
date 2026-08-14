@@ -1877,7 +1877,7 @@ def host_open_local():
     gLocalHost = 1
     chat_add(90, tr("chat_welcome"))
     if IS_WEB:
-        web_host_announce()
+        web_create_lobby()
     return True
 
 
@@ -5959,7 +5959,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v99")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v100")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6154,25 +6154,40 @@ def directory_poll():
         pass
 
 
-def web_host_announce():
-    """Publish a browser lobby through the same-origin directory relay."""
-    global gWebHostId, gWebLobbyId
+def web_lobby_payload():
+    return {
+        "name": (gLobName.strip() or "LOBBY")[:15],
+        "host": gWebLobbyId,
+        "owner": gWebLobbyId,
+        "region": 1,
+        "filled": sum(1 for k in gKinds if k),
+        "slots": MAX_PLAYERS,
+        "world": gLevelSel,
+        "started": gNetStarted,
+        "kinds": list(gKinds), "bots": list(gBotEnabled),
+        "teams": list(gLobTeam), "chars": list(gLobChar),
+        "ready": list(gLobReady), "clients": dict(gWebClients),
+    }
+
+
+def web_create_lobby():
+    global gWebLobbyId
     try:
         from js import window
         gWebLobbyId = "web-" + design_owner_id()
-        window._announceLobby({
-            "name": (gLobName.strip() or "LOBBY")[:15],
-            "host": gWebLobbyId,
-            "owner": gWebLobbyId,
-            "region": 1,
-            "filled": sum(1 for k in gKinds if k),
-            "slots": MAX_PLAYERS,
-            "world": gLevelSel,
-            "started": gNetStarted,
-            "kinds": list(gKinds), "bots": list(gBotEnabled),
-            "teams": list(gLobTeam), "chars": list(gLobChar),
-            "ready": list(gLobReady), "clients": dict(gWebClients),
-        })
+        window._createWebLobby(web_lobby_payload())
+    except Exception:
+        pass
+
+
+def web_host_announce():
+    """Heartbeat an already-created browser lobby."""
+    try:
+        from js import window
+        if not gWebLobbyId:
+            web_create_lobby()
+        else:
+            window._heartbeatWebLobby(web_lobby_payload())
     except Exception:
         pass
 
