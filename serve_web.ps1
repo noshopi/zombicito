@@ -76,6 +76,10 @@ function New-Session([string]$userId, [string]$role = "user") {
 }
 
 function Get-AuthUser([string]$headers) {
+    try {
+    if ($script:Sessions -isnot [System.Collections.Hashtable]) { $script:Sessions = @{} }
+    if ($script:Users -isnot [System.Collections.Hashtable]) { $script:Users = @{} }
+    if ($script:Players -isnot [System.Collections.Hashtable]) { $script:Players = @{} }
     $token = $null
     foreach ($h in ($headers -split "`r`n")) {
         if ($h -like "Cookie:*") {
@@ -95,7 +99,9 @@ function Get-AuthUser([string]$headers) {
         if ([string]$script:Users[$email].id -eq $id) {
             $user = $script:Users[$email]
             $now = Get-Date
-            $player = if ($script:Players.ContainsKey($id)) { $script:Players[$id] } else { @{} }
+            $player = $null
+            if ($script:Players.ContainsKey($id)) { $player = $script:Players[$id] }
+            if ($null -eq $player -or $player -isnot [System.Collections.Hashtable]) { $player = @{} }
             $player.email = [string]$email
             $player.num = if ($null -ne $user.num) { [int]$user.num } else { 0 }
             if (-not $player.ContainsKey("lobby")) { $player.lobby = "" }
@@ -106,6 +112,7 @@ function Get-AuthUser([string]$headers) {
         }
     }
     return $null
+    } catch { return $null }
 }
 
 Write-Host ""
@@ -249,6 +256,8 @@ while ($true) {
             $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":true}')
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -eq "/api/admin/overview" -and $method -eq "GET") {
+            if ($script:Lobbies -isnot [System.Collections.Hashtable]) { $script:Lobbies = @{} }
+            if ($script:Players -isnot [System.Collections.Hashtable]) { $script:Players = @{} }
             $user = Get-AuthUser $head
             if (-not $user -or $user.role -ne "admin") {
                 $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"FORBIDDEN"}')
@@ -310,7 +319,7 @@ while ($true) {
                     $hostId = "web-" + [string]$user.id
                     $old = if ($script:Lobbies.ContainsKey($hostId)) { $script:Lobbies[$hostId] } else { $null }
                     if ($url -eq "/api/lobbies/heartbeat" -and $null -eq $old) {
-                        throw "LOBBY_NOT_FOUND"
+                        $old = $null
                     }
                     $slots = [int]$o.slots
                     $kinds = @($o.kinds); $bots = @($o.bots); $ready = @($o.ready)
@@ -410,6 +419,7 @@ while ($true) {
             $status = "200 OK"
             $handled = $true
         } elseif ($url -eq "/api/lobbies") {
+            if ($script:Lobbies -isnot [System.Collections.Hashtable]) { $script:Lobbies = @{} }
             $viewer = Get-AuthUser $head
             foreach ($key in @($script:Lobbies.Keys)) {
                 $entry = $script:Lobbies[$key]
@@ -486,6 +496,8 @@ while ($true) {
             $status = "200 OK"
             $handled = $true
         } elseif ($url -eq "/api/lobbies/action" -and $method -eq "POST") {
+            if ($script:Lobbies -isnot [System.Collections.Hashtable]) { $script:Lobbies = @{} }
+            if ($script:Players -isnot [System.Collections.Hashtable]) { $script:Players = @{} }
             $cl = 0
             foreach ($hl in ($head -split "`r`n")) {
                 if ($hl -like "Content-Length:*") { $cl = [int]$hl.Substring(15).Trim(); break }
@@ -588,6 +600,7 @@ while ($true) {
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
             $ct = "application/json; charset=utf-8"; $status = "200 OK"; $handled = $true
         } elseif ($url -like "/api/lobbies/state/*") {
+            if ($script:Lobbies -isnot [System.Collections.Hashtable]) { $script:Lobbies = @{} }
             $hostId = [Uri]::UnescapeDataString($url.Substring("/api/lobbies/state/".Length))
             $viewer = Get-AuthUser $head
             if ($viewer -and $script:Players.ContainsKey([string]$viewer.id)) {
@@ -739,7 +752,7 @@ while ($true) {
         if ($method -ne "HEAD") { $stream.Write($bytes, 0, $bytes.Length) }
         $stream.Flush()
     } catch {
-        Add-Content -Path (Join-Path $root "server_err.log") -Value ("[ERR " + (Get-Date) + "] " + $_.Exception.ToString() + " URL=" + $url)
+        Add-Content -Path (Join-Path $root "server_err.log") -Value ("[ERR " + (Get-Date) + "] " + $_.Exception.ToString() + " POS=" + $_.InvocationInfo.PositionMessage + " URL=" + $url)
     }
     if ($client) { try { $client.Close() } catch {} }
 }
