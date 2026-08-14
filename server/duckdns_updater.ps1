@@ -1,7 +1,8 @@
 # duckdns auto-updater - keeps zombicito.duckdns.org pointing to this PC
 $token = $env:DUCKDNS_TOKEN
+$selfDir = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($token)) {
-    $tokenFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "duckdns_token.txt"
+    $tokenFile = Join-Path $selfDir "duckdns_token.txt"
     if (Test-Path $tokenFile) {
         try { $token = (Get-Content $tokenFile -Raw).Trim() } catch {}
     }
@@ -10,7 +11,7 @@ $ifMissing = [string]::IsNullOrWhiteSpace($token)
 if ($ifMissing) { exit 0 }
 $domains = "zombicito"
 $cacheFile = "$env:TEMP\duckdns_ip.txt"
-$logFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "duckdns.log"
+$logFile = Join-Path $PSScriptRoot "duckdns.log"
 
 try { $pub = (Invoke-WebRequest -Uri "https://api.ipify.org" -TimeoutSec 10 -UseBasicParsing).Content.Trim() } catch { exit 0 }
 $old = ""

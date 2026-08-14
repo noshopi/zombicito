@@ -14,6 +14,13 @@ if getattr(sys, "frozen", False):
     ROOT = os.path.dirname(sys.executable)
 else:
     ROOT = os.path.dirname(os.path.abspath(__file__))
+# Locate the project root (folder that holds ZamnNative/assets) whether the
+# script runs from the root, from a sub-folder, or as a frozen exe in root.
+while not os.path.isdir(os.path.join(ROOT, "ZamnNative", "assets")):
+    parent = os.path.dirname(ROOT)
+    if parent == ROOT:
+        break
+    ROOT = parent
 ASSETS = os.path.join(ROOT, "ZamnNative", "assets")
 ZAMN_PY = os.path.join(ROOT, "zamn.py")
 JSON_OUT = os.path.join(ROOT, "mapa_layouts.json")

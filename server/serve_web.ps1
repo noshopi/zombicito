@@ -7,7 +7,7 @@
 # router rule: TCP 7070 -> the LAN IP of this PC.
 param([int]$Port = 7070)
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = Split-Path -Parent $PSScriptRoot
 
 $mime = @{
     ".html" = "text/html; charset=utf-8"
@@ -1077,7 +1077,7 @@ while ($true) {
         $stream.Flush()
     } catch {
         try {
-            Add-Content -Path (Join-Path $root "server_err.log") -Value ("[ERR " + (Get-Date) + "] " + $_.Exception.ToString() + " POS=" + $_.InvocationInfo.PositionMessage + " URL=" + $url)
+            Add-Content -Path (Join-Path $PSScriptRoot "server_err.log") -Value ("[ERR " + (Get-Date) + "] " + $_.Exception.ToString() + " POS=" + $_.InvocationInfo.PositionMessage + " URL=" + $url)
         } catch {}
     }
     if ($client) { try { $client.Close() } catch {} }

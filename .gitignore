@@ -22,6 +22,9 @@ tools/SDL2-*/
 tools/w64devkit/
 ZombiesAteMyNeighbors.exe
 ZamnServer.exe
+EditorMapas.exe
+build_pyinstaller/
+dist/
 
 # Local generated custom output
 ZamnNative/assets/custom_drawn.png

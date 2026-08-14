@@ -11,7 +11,7 @@ $ErrorActionPreference = "Continue"
 
 $Token   = $env:DUCKDNS_TOKEN
 $Domains = "zombicito"
-$ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptRoot = Split-Path -Parent $PSScriptRoot
 $Server  = Join-Path $ScriptRoot "zamn.py"
 
 function Update-DuckDns {
