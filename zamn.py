@@ -2019,7 +2019,13 @@ def chat_send():
     global gChatInput
     text = gChatInput.strip()[:32]
     if text:
-        if gSock is not None and gLobStage == 2:
+        if IS_WEB and gWebLobbyId:
+            try:
+                from js import window
+                window._webLobbyAction(gWebLobbyId, "chat", gMySlot, 0, text)
+            except Exception:
+                pass
+        elif gSock is not None and gLobStage == 2:
             try:
                 gSock.sendto(PACK_CHAT.pack(10, gMySlot, len(text),
                              text.encode("latin1", "replace")[:32].ljust(32, b"\0")), gHostAddr)
@@ -5913,7 +5919,7 @@ def render_editor():
     # title
     title = tr("ed_title") if gEdMode == "character" else "DISEÑA VECINO"
     sc_title(VIEW_W // 2, 10, title, (200, 160, 66), 2)
-    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v94")
+    draw_text_c(vbuf, VIEW_W - 20, 6, 1, (120, 100, 160), "v95")
     for name, mode, label, active in (("mode_character", "character", "PERS", gEdMode == "character"),
                                       ("mode_neighbor", "neighbor", "VEC", gEdMode == "neighbor")):
         _, y, bw, bh = _ed_mode_rect(mode)
@@ -6131,7 +6137,7 @@ def web_host_announce():
 
 def web_lobby_sync():
     """Synchronize a browser lobby through the HTTP directory relay."""
-    global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar
+    global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar, gChatLines
     if not IS_WEB or not gWebLobbyId:
         return
     try:
@@ -6155,6 +6161,20 @@ def web_lobby_sync():
         if slot >= 0:
             gMySlot = slot
             gLocalSlot = slot
+        clients = getattr(state, "clients", None)
+        chat = getattr(state, "chat", None)
+        if chat is not None:
+            gChatLines[:] = []
+            for item in chat:
+                client = str(getattr(item, "client", ""))
+                if client == gWebLobbyId:
+                    chat_slot = 0
+                else:
+                    try:
+                        chat_slot = int(clients[client]) if clients is not None else 90
+                    except Exception:
+                        chat_slot = 90
+                chat_add(chat_slot, str(getattr(item, "text", "")))
     except Exception:
         pass
 

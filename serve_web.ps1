@@ -232,6 +232,7 @@ while ($true) {
                         }
                     }
                     $revision = if ($old.Count -gt 0) { [int]$old[0].revision } else { 0 }
+                    $chat = if ($old.Count -gt 0) { @($old[0].chat) } else { @() }
                     $kinds = @($o.kinds); $bots = @($o.bots); $ready = @($o.ready)
                     while ($kinds.Count -lt [int]$o.slots) { $kinds += 0 }
                     while ($bots.Count -lt [int]$o.slots) { $bots += 0 }
@@ -257,7 +258,7 @@ while ($true) {
                                           started = [int]$o.started; owner = [string]$o.owner;
                                           kinds = $kinds; bots = $bots; teams = @($o.teams);
                                           chars = @($o.chars); ready = $ready;
-                                          clients = $clients; requests = @(); revision = $revision; t = Get-Date }
+                                          clients = $clients; requests = @(); chat = $chat; revision = $revision; t = Get-Date }
                 } catch {}
             }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
@@ -348,6 +349,7 @@ while ($true) {
                     if ($null -eq $l.kinds) { $l.kinds = @(0..([int]$l.slots - 1) | ForEach-Object { 0 }) }
                     if ($null -eq $l.bots) { $l.bots = @(0..([int]$l.slots - 1) | ForEach-Object { 1 }) }
                     if ($null -eq $l.ready) { $l.ready = @(0..([int]$l.slots - 1) | ForEach-Object { 1 }) }
+                    if ($null -eq $l.chat) { $l.chat = @() }
                     $kinds = @($l.kinds); $bots = @($l.bots); $ready = @($l.ready)
                     while ($kinds.Count -lt [int]$l.slots) { $kinds += 0 }
                     while ($bots.Count -lt [int]$l.slots) { $bots += 0 }
@@ -356,7 +358,12 @@ while ($true) {
                     $action = [string]$o.action
                     $slot = -1
                     if ($l.clients.ContainsKey($client)) { $slot = [int]$l.clients[$client] }
-                    if ($action -eq "join" -and $slot -lt 0) {
+                    if ($action -eq "chat" -and [string]$o.text -ne "") {
+                        $l.chat += @{ client = $client; text = ([string]$o.text).Substring(0, [Math]::Min(80, ([string]$o.text).Length)) }
+                        if ($l.chat.Count -gt 40) { $l.chat = @($l.chat | Select-Object -Last 40) }
+                        $l.revision = [int]$l.revision + 1
+                        $ok2 = $true
+                    } elseif ($action -eq "join" -and $slot -lt 0) {
                         for ($i = 0; $i -lt [int]$l.slots; $i++) {
                             if ([int]$kinds[$i] -eq 0 -and [int]$bots[$i] -eq 0) { $slot = $i; break }
                         }
