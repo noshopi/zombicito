@@ -411,7 +411,8 @@ while ($true) {
                         }
                     }
                     $revision = if ($null -ne $old) { [int]$old.revision } else { 0 }
-                    $entry = @{ name = [string]$o.name; host = $hostId; owner = $hostId; region = 1;
+                    $ownerUid = if ($null -ne $old -and $old.owner) { [string]$old.owner } else { [string]$user.id }
+                    $entry = @{ name = [string]$o.name; host = $hostId; owner = $ownerUid; region = 1;
                         filled = @($kinds | Where-Object { [int]$_ -gt 0 }).Count; slots = $slots;
                         world = [int]$o.world; started = [int]$o.started; kinds = $kinds; bots = $bots;
                         teams = @($o.teams); chars = @($o.chars); ready = $ready; clients = $clients;
@@ -419,7 +420,7 @@ while ($true) {
                         snap = if ($null -ne $old) { [string]$old.snap } else { "" };
                         inputs = if ($null -ne $old) { $old.inputs } else { @{} };
                         clientT = if ($null -ne $old -and $null -ne $old.clientT) { $old.clientT } else { @{} };
-                        revision = $revision; t = Get-Date }
+                        revision = $revision; hostT = Get-Date; t = Get-Date }
                     $script:Lobbies[$hostId] = $entry
                     if ($script:Players.ContainsKey([string]$user.id)) {
                         $script:Players[[string]$user.id].lobby = $hostId
@@ -495,7 +496,7 @@ while ($true) {
                                                chars = @($o.chars); ready = $ready;
                                                clients = $clients; requests = @(); chat = $chat; snap = $snap;
                                                inputs = $inputs; clientT = if ($null -ne $old) { $old.clientT } else { @{} };
-                                               revision = $revision; t = Get-Date }
+                                               revision = $revision; hostT = Get-Date; t = Get-Date }
                 } catch {}
             }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
@@ -512,7 +513,11 @@ while ($true) {
                 if ($null -ne $entry -and $null -ne $entry.t -and $entry.t -is [DateTime]) {
                     $age = ((Get-Date) - $entry.t).TotalSeconds
                 }
-                if ($age -ge 20 -or
+                $hostAge = $age
+                if ($null -ne $entry -and $null -ne $entry.hostT -and $entry.hostT -is [DateTime]) {
+                    $hostAge = ((Get-Date) - $entry.hostT).TotalSeconds
+                }
+                if ($hostAge -ge 25 -or $age -ge 20 -or
                     ([int]$entry.filled -le 0 -and [int]$entry.started -eq 0)) {
                     $script:Lobbies.Remove($key)
                 }
@@ -539,6 +544,11 @@ while ($true) {
             elseif ($json[0] -ne '[') { $json = "[" + $json + "]" }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
             $ct = "application/json; charset=utf-8"
+            $status = "200 OK"
+            $handled = $true
+        } elseif ($url -eq "/api/status") {
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes("OK")
+            $ct = "text/plain; charset=utf-8"
             $status = "200 OK"
             $handled = $true
         } elseif ($url -eq "/api/designs" -and $method -eq "POST") {
@@ -677,10 +687,44 @@ while ($true) {
                         $ready[$slot] = [int]$o.ready
                         $l.revision = [int]$l.revision + 1
                         $ok2 = $true
+                    } elseif ($action -eq "promote" -and [string]$l.owner -eq [string]$actor.id) {
+                        # Shammill.LobbyManager: promote a player to lobby leader.
+                        $target = [int]$o.slot
+                        $promoted = $null
+                        if ($target -ge 0 -and $null -ne $l.clients) {
+                            foreach ($prop in $l.clients.GetEnumerator()) {
+                                if ([int]$prop.Value -eq $target) { $promoted = [string]$prop.Key; break }
+                            }
+                        }
+                        if ($promoted) {
+                            $l.owner = $promoted
+                            $l.revision = [int]$l.revision + 1
+                            $ok2 = $true
+                        }
+                    } elseif ($action -eq "leave") {
+                        # Shammill.LobbyManager: remove a player (leader leaving closes the lobby).
+                        $isOwnerLeave = ([string]$l.owner -eq [string]$actor.id) -or ([string]$l.owner -eq $client)
+                        $isHostLeave = ($hostId -eq ("web-" + [string]$actor.id))
+                        if ($slot -ge 0) {
+                            $kinds[$slot] = 0; $bots[$slot] = 0; $ready[$slot] = 0
+                            if ($null -ne $l.clients) { $l.clients.Remove($client) }
+                            if ($null -ne $l.clientT) { $l.clientT.Remove($client) }
+                            if ($null -ne $l.inputs) { $l.inputs.Remove($client) }
+                            $l.filled = @($kinds | Where-Object { [int]$_ -gt 0 }).Count
+                            $l.revision = [int]$l.revision + 1
+                            $ok2 = $true
+                        }
+                        if ($isOwnerLeave -or $isHostLeave) {
+                            $script:Lobbies.Remove($hostId)
+                            $result = $null
+                            $l = $null
+                        }
                     }
-                    $l.kinds = $kinds; $l.bots = $bots; $l.ready = $ready
-                    $l.t = Get-Date
-                    $result = $l
+                    if ($null -ne $l) {
+                        $l.kinds = $kinds; $l.bots = $bots; $l.ready = $ready
+                        $l.t = Get-Date
+                        $result = $l
+                    }
                 }
             } catch { $actionError = $_.Exception.Message + " | " + $_.InvocationInfo.PositionMessage }
             $payload = @{ ok = $ok2; revision = if ($result) { [int]$result.revision } else { 0 }; state = $result; error = $actionError } | ConvertTo-Json -Compress -Depth 6

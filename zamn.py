@@ -525,6 +525,10 @@ gWebHostId = 0
 gWebLobbyId = ""
 gWebSyncT = 0.0
 gWebClients = {}
+gWebOwner = ""
+gWebOwnerSlot = -1
+gIsLeader = 0
+gWebGoneT = 0
 gConsoleOpen = False
 gConsoleInput = ""
 gWpnMenuSel = 0
@@ -4419,6 +4423,8 @@ def render_lobby():
                         stex = texChars[charl]
                     vbuf.blit(stex, (sdx, sy - 4), pygame.Rect(sfr[0], sfr[1], sfr[2], sfr[3]))
                 draw_text(vbuf, bx + 26, sy + 1, 1, rowc, who)
+                if slot == gWebOwnerSlot and gWebOwnerSlot >= 0:
+                    draw_text(vbuf, bx + 72, sy + 1, 1, (255, 210, 110), "LIDER")
                 cc = (255, 255, 255) if mine else (150, 145, 170)
                 if gKinds[slot] != 0 or bot_active:
                     draw_text(vbuf, bx + 26, sy + 10, 1, cc, char_name(charl, slot))
@@ -4484,8 +4490,9 @@ def render_lobby():
                 draw_text_c(vbuf, VIEW_W // 2, VIEW_H - 26, 1, (255, 255, 120), tr("lobby_connect"))
         # Back, remove-all-bots and creator-only launch controls.
         buttons = [(52, tr("ed_back"))]
-        if gLobStage == 1 and gMySlot == 0:
+        if gLobStage == 1 and gIsLeader:
             buttons.append((236, "SIN BOTS"))
+        if gLobStage == 1 and gMySlot == 0:
             buttons.append((420, "LANZAR"))
         for cx, label in buttons:
             fill = (30, 18, 44)
@@ -4940,9 +4947,16 @@ def lobby_click(mx, my):
         for b, cx in ((0, 52), (1, 236), (2, 420)):
             if abs(mx - cx) <= 42 and 254 <= my <= 268:
                 if b == 0:
+                    if IS_WEB and gWebLobbyId:
+                        try:
+                            from js import window
+                            window._webLobbyAction(gWebLobbyId, "leave", gMySlot, 0, "")
+                        except Exception:
+                            pass
+                        gWebLobbyId = ""
                     play_snd(SND_MENU)
                     gSt = ST_MENU
-                elif b == 1 and gLobStage == 1 and gMySlot == 0:
+                elif b == 1 and gLobStage == 1 and gIsLeader:
                     for si in range(MAX_PLAYERS):
                         if si != gMySlot:
                             gBotEnabled[si] = 0
@@ -4978,7 +4992,17 @@ def lobby_click(mx, my):
                 sy = 28 + m * 36
                 if sy - 5 <= my <= sy + 31:
                     gLobSelRow = t * 3 + m
-                    if (gLobStage == 1 and gMySlot == 0 and gKinds[gLobSelRow] == 0 and
+                    if gIsLeader and gKinds[gLobSelRow] != 0 and gLobSelRow != gMySlot:
+                        # Shammill.LobbyManager: promote another player to lobby leader.
+                        if IS_WEB:
+                            try:
+                                from js import window
+                                window._webLobbyAction(gWebLobbyId, "promote", gLobSelRow, 0, "")
+                            except Exception:
+                                pass
+                        play_snd(SND_CONFIRM)
+                        return
+                    if (gLobStage == 1 and gIsLeader and gKinds[gLobSelRow] == 0 and
                             bx + 72 <= mx <= bx + 110 and sy + 13 <= my <= sy + 28):
                         gBotEnabled[gLobSelRow] ^= 1
                         gLobReady[gLobSelRow] = 1 if gBotEnabled[gLobSelRow] else 0
@@ -6396,7 +6420,7 @@ def web_lobby_payload():
     return {
         "name": (gLobName.strip() or "LOBBY")[:15],
         "host": gWebLobbyId,
-        "owner": gWebLobbyId,
+        "owner": gWebOwner,
         "region": 1,
         "filled": sum(1 for k in gKinds if k),
         "slots": MAX_PLAYERS,
@@ -6409,10 +6433,11 @@ def web_lobby_payload():
 
 
 def web_create_lobby():
-    global gWebLobbyId
+    global gWebLobbyId, gWebOwner
     try:
         from js import window
         gWebLobbyId = "web-" + design_owner_id()
+        gWebOwner = design_owner_id()
         window._createWebLobby(web_lobby_payload())
     except Exception:
         pass
@@ -6478,6 +6503,7 @@ def web_apply_inputs(state):
 def web_lobby_sync():
     """Synchronize a browser lobby through the HTTP directory relay."""
     global gWebSyncT, gMySlot, gLobReady, gKinds, gBotEnabled, gLobTeam, gLobChar, gChatLines, gSt, gNetStarted
+    global gWebOwner, gWebOwnerSlot, gIsLeader, gWebGoneT
     if not IS_WEB or not gWebLobbyId:
         return
     try:
@@ -6486,7 +6512,36 @@ def web_lobby_sync():
         window._pollWebLobby(gWebLobbyId)
         state = window._webLobbyState
         if state is None:
+            # Lobby deleted by the server (leader left / host offline): leave to menu.
+            gWebGoneT += 1
+            if gWebGoneT > 150 and gLobStage in (1, 2):
+                gWebLobbyId = ""
+                gLobStage = 0
+                gSt = ST_MENU
+                gWebGoneT = 0
             return
+        gWebGoneT = 0
+        owner = getattr(state, "owner", "") or ""
+        if owner:
+            gWebOwner = str(owner)
+        gIsLeader = 1 if (gWebOwner == design_owner_id()) else 0
+        gWebOwnerSlot = 0
+        if gIsLeader:
+            try:
+                ws = int(window._webLobbySlot)
+                gWebOwnerSlot = ws if ws >= 0 else gMySlot
+            except Exception:
+                gWebOwnerSlot = gMySlot
+        else:
+            cl = getattr(state, "clients", None)
+            if cl is not None:
+                try:
+                    if owner in cl:
+                        gWebOwnerSlot = int(cl[owner])
+                    else:
+                        gWebOwnerSlot = 0
+                except Exception:
+                    gWebOwnerSlot = 0
         kinds = state.kinds
         bots = state.bots
         teams = state.teams
