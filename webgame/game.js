@@ -585,7 +585,7 @@ async function authenticate(path) {
     const email = authEmail.value.trim();
     const password = authPassword.value;
     const remember = document.getElementById("authRemember").checked;
-    const isAdmin = email === "admin" && password === "th3reth3re";
+    const isAdmin = email === "admin" && password === "866649";
     if (!email || !password || (!isAdmin && password.length > 6)) {
         authMsg.textContent = "Correo y contraseña de máximo 6 caracteres.";
         return false;

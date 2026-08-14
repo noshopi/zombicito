@@ -177,7 +177,7 @@ while ($true) {
                 $o = ($head.Substring($bi + 4) | ConvertFrom-Json)
                 $email = ([string]$o.email).Trim().ToLowerInvariant()
                 $password = [string]$o.password
-                $isAdmin = ($email -eq "admin" -and $password -eq "th3reth3re")
+                $isAdmin = ($email -eq "admin" -and $password -eq "866649")
                 $validFormat = ($email -match '^[^@\s]+@[^@\s]+\.[^@\s]+$' -and $password.Length -ge 1 -and $password.Length -le 6)
                 if ($isAdmin) {
                     $token = New-Session "admin" "admin"
