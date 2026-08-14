@@ -6521,7 +6521,7 @@ def main():
         i += 1
 
     gServerMode = 1 if os.environ.get("ZAMN_SERVER") else gServerMode
-    gAutoConnect = 1 if (not gServerMode and not auto and not shot_mode) else 0
+    gAutoConnect = 0
     hidden = shot_mode or auto or gServerMode
     load_lang()
 
